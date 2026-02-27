@@ -159,6 +159,18 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString();
 }
 
+function notificationMessage(notification: any) {
+  const direct =
+    (typeof notification?.message === "string" && notification.message.trim()) ||
+    (typeof notification?.body === "string" && notification.body.trim());
+  if (direct) return direct;
+  if (notification?.type === "DAILY_ROL") return "Daily ROL reward credited.";
+  if (notification?.type === "WALLET_RECEIVE") return "Wallet received funds.";
+  if (notification?.type === "WALLET_TRANSFER") return "Wallet transfer sent.";
+  if (notification?.type === "VOTE_PURCHASE") return "Vote purchase completed.";
+  return notification?.title || "Notification update";
+}
+
 export default function App() {
   const [token, setToken] = useState<string>(() => localStorage.getItem(TOKEN_KEY) || "");
   const [tab, setTab] = useState<AppTab>("overview");
@@ -171,6 +183,7 @@ export default function App() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [userSearch, setUserSearch] = useState("");
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
   const [categories, setCategories] = useState<PcaCategory[]>([]);
 
   const [categoryForm, setCategoryForm] = useState({
@@ -312,6 +325,7 @@ export default function App() {
     setOverview(null);
     setUsers([]);
     setSelectedUser(null);
+    setSelectedNotification(null);
     setCategories([]);
     setNewCriterion("");
     setEditingCriterion("");
@@ -333,6 +347,7 @@ export default function App() {
   async function openUser(userId: string) {
     try {
       setError("");
+      setSelectedNotification(null);
       const res = await request(`/admin/users/${userId}`, token);
       setSelectedUser(res.user || null);
     } catch (err: any) {
@@ -811,8 +826,15 @@ export default function App() {
                         <ul className="list-rows">
                           {selectedUser.notifications.map((notification: any) => (
                             <li key={notification.id}>
-                              <strong>{notification.type}</strong>
-                              <span>{notification.message || "No message"}</span>
+                              <button
+                                type="button"
+                                className="row-btn"
+                                onClick={() => setSelectedNotification(notification)}
+                              >
+                                <strong>{notification.type}</strong>
+                                <span>{notificationMessage(notification)}</span>
+                                <small>{formatDateTime(notification.createdAt)}</small>
+                              </button>
                             </li>
                           ))}
                         </ul>
@@ -1223,6 +1245,31 @@ export default function App() {
               </button>
             </div>
           </form>
+        </div>
+      ) : null}
+
+      {selectedNotification ? (
+        <div className="modal-backdrop" onClick={() => setSelectedNotification(null)}>
+          <div className="card modal-form" onClick={(e) => e.stopPropagation()}>
+            <h3>{selectedNotification.title || selectedNotification.type}</h3>
+            <p className="muted">{selectedNotification.type}</p>
+            <p>{notificationMessage(selectedNotification)}</p>
+            <div className="mini-stats">
+              <span>Created: {formatDateTime(selectedNotification.createdAt)}</span>
+              <span>Read: {selectedNotification.readAt ? formatDateTime(selectedNotification.readAt) : "Unread"}</span>
+            </div>
+            {selectedNotification.data ? (
+              <details className="advanced-block" open>
+                <summary>Details</summary>
+                <pre>{JSON.stringify(selectedNotification.data, null, 2)}</pre>
+              </details>
+            ) : null}
+            <div className="template-row">
+              <button type="button" className="ghost" onClick={() => setSelectedNotification(null)}>
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>
