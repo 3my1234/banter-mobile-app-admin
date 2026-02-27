@@ -124,6 +124,41 @@ function jsonText(value: unknown) {
   }
 }
 
+function parseCriteriaList(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map((item) => String(item || "").trim()).filter(Boolean)));
+  }
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return Array.from(new Set(parsed.map((item) => String(item || "").trim()).filter(Boolean)));
+      }
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function criteriaToJson(criteria: string[]) {
+  return JSON.stringify(Array.from(new Set(criteria.map((item) => item.trim()).filter(Boolean))), null, 2);
+}
+
+function shortHash(value?: string | null) {
+  if (!value) return "-";
+  if (value.length <= 16) return value;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
 export default function App() {
   const [token, setToken] = useState<string>(() => localStorage.getItem(TOKEN_KEY) || "");
   const [tab, setTab] = useState<AppTab>("overview");
@@ -182,12 +217,19 @@ export default function App() {
     videoUrl: string;
     stats: string;
   }>(null);
+  const [newCriterion, setNewCriterion] = useState("");
+  const [editingCriterion, setEditingCriterion] = useState("");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
 
   const loggedIn = Boolean(token);
+  const categoryCriteria = useMemo(() => parseCriteriaList(categoryForm.criteria), [categoryForm.criteria]);
+  const editingCategoryCriteria = useMemo(
+    () => parseCriteriaList(editingCategory?.criteria || "[]"),
+    [editingCategory?.criteria]
+  );
 
   const pageTitle = useMemo(() => {
     if (tab === "overview") return "Admin Overview";
@@ -271,6 +313,8 @@ export default function App() {
     setUsers([]);
     setSelectedUser(null);
     setCategories([]);
+    setNewCriterion("");
+    setEditingCriterion("");
   }
 
   async function searchUsers() {
@@ -301,7 +345,7 @@ export default function App() {
     setCategoryForm((prev) => ({
       ...prev,
       categoryType: type,
-      criteria: JSON.stringify(template, null, 2),
+      criteria: criteriaToJson(template),
     }));
   }
 
@@ -312,6 +356,42 @@ export default function App() {
       ...prev,
       stats: JSON.stringify(template, null, 2),
     }));
+  }
+
+  function addCategoryCriterion() {
+    const metric = newCriterion.trim();
+    if (!metric) return;
+    setCategoryForm((prev) => ({
+      ...prev,
+      criteria: criteriaToJson([...parseCriteriaList(prev.criteria), metric]),
+    }));
+    setNewCriterion("");
+  }
+
+  function removeCategoryCriterion(metric: string) {
+    setCategoryForm((prev) => ({
+      ...prev,
+      criteria: criteriaToJson(parseCriteriaList(prev.criteria).filter((item) => item !== metric)),
+    }));
+  }
+
+  function addEditingCategoryCriterion() {
+    if (!editingCategory) return;
+    const metric = editingCriterion.trim();
+    if (!metric) return;
+    setEditingCategory({
+      ...editingCategory,
+      criteria: criteriaToJson([...parseCriteriaList(editingCategory.criteria), metric]),
+    });
+    setEditingCriterion("");
+  }
+
+  function removeEditingCategoryCriterion(metric: string) {
+    if (!editingCategory) return;
+    setEditingCategory({
+      ...editingCategory,
+      criteria: criteriaToJson(parseCriteriaList(editingCategory.criteria).filter((item) => item !== metric)),
+    });
   }
 
   async function createCategory(e: FormEvent) {
@@ -378,6 +458,7 @@ export default function App() {
       description: category.description || "",
       criteria: jsonText(category.criteria),
     });
+    setEditingCriterion("");
   }
 
   async function saveCategoryEdit(e: FormEvent) {
@@ -664,10 +745,79 @@ export default function App() {
                         <p>{selectedUser.movementAddress || "-"}</p>
                       </div>
                     </div>
-                    <details>
-                      <summary>Raw JSON</summary>
-                      <pre>{JSON.stringify(selectedUser, null, 2)}</pre>
-                    </details>
+
+                    <div className="detail-section">
+                      <h4>Wallets</h4>
+                      {!selectedUser.wallets?.length ? (
+                        <p className="muted">No wallet records.</p>
+                      ) : (
+                        <div className="wallet-list">
+                          {selectedUser.wallets.map((wallet: any) => (
+                            <article className="wallet-card" key={wallet.id}>
+                              <strong>{wallet.blockchain}</strong>
+                              <p>{wallet.address}</p>
+                              <div className="mini-stats">
+                                {(wallet.walletBalances || []).map((balance: any) => (
+                                  <span key={balance.id}>
+                                    {balance.tokenSymbol}: {balance.balance}
+                                  </span>
+                                ))}
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="detail-section">
+                      <h4>Recent Payments</h4>
+                      {!selectedUser.payments?.length ? (
+                        <p className="muted">No payments yet.</p>
+                      ) : (
+                        <div className="table-wrap compact">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Time</th>
+                                <th>Type</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                                <th>Tx</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedUser.payments.map((payment: any) => (
+                                <tr key={payment.id}>
+                                  <td>{formatDateTime(payment.createdAt)}</td>
+                                  <td>{payment.paymentType}</td>
+                                  <td>
+                                    {payment.amount} {payment.currency}
+                                  </td>
+                                  <td>{payment.status}</td>
+                                  <td>{shortHash(payment.txHash)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="detail-section">
+                      <h4>Recent Notifications</h4>
+                      {!selectedUser.notifications?.length ? (
+                        <p className="muted">No notifications yet.</p>
+                      ) : (
+                        <ul className="list-rows">
+                          {selectedUser.notifications.map((notification: any) => (
+                            <li key={notification.id}>
+                              <strong>{notification.type}</strong>
+                              <span>{notification.message || "No message"}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
@@ -724,11 +874,44 @@ export default function App() {
                   onChange={(e) => setCategoryForm({ ...categoryForm, description: e.target.value })}
                   placeholder="Description"
                 />
-                <textarea
-                  value={categoryForm.criteria}
-                  onChange={(e) => setCategoryForm({ ...categoryForm, criteria: e.target.value })}
-                  placeholder='Criteria JSON e.g. ["goals","assists","duels_won"]'
-                />
+                <div className="criteria-builder">
+                  <label>Criteria</label>
+                  <div className="criteria-pills">
+                    {categoryCriteria.length === 0 ? (
+                      <span className="muted">No criteria selected</span>
+                    ) : (
+                      categoryCriteria.map((metric) => (
+                        <button
+                          type="button"
+                          key={metric}
+                          className="pill"
+                          onClick={() => removeCategoryCriterion(metric)}
+                          title="Remove criterion"
+                        >
+                          {metric} x
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <div className="criteria-input">
+                    <input
+                      value={newCriterion}
+                      onChange={(e) => setNewCriterion(e.target.value)}
+                      placeholder="Add criterion (e.g. xg_contribution)"
+                    />
+                    <button type="button" className="ghost" onClick={addCategoryCriterion}>
+                      Add
+                    </button>
+                  </div>
+                  <details className="advanced-block">
+                    <summary>Advanced: edit criteria JSON</summary>
+                    <textarea
+                      value={categoryForm.criteria}
+                      onChange={(e) => setCategoryForm({ ...categoryForm, criteria: e.target.value })}
+                      placeholder='Criteria JSON e.g. ["goals","assists","duels_won"]'
+                    />
+                  </details>
+                </div>
                 <button type="submit" disabled={busy}>
                   Create Category
                 </button>
@@ -797,11 +980,14 @@ export default function App() {
                   onChange={(e) => setNomineeForm({ ...nomineeForm, videoUrl: e.target.value })}
                   placeholder="Video URL"
                 />
-                <textarea
-                  value={nomineeForm.stats}
-                  onChange={(e) => setNomineeForm({ ...nomineeForm, stats: e.target.value })}
-                  placeholder='Stats JSON e.g. {"goals":14,"assists":7,"duels_won":42}'
-                />
+                <details className="advanced-block">
+                  <summary>Advanced: nominee stats JSON</summary>
+                  <textarea
+                    value={nomineeForm.stats}
+                    onChange={(e) => setNomineeForm({ ...nomineeForm, stats: e.target.value })}
+                    placeholder='Stats JSON e.g. {"goals":14,"assists":7,"duels_won":42}'
+                  />
+                </details>
                 <button type="submit" disabled={busy}>
                   Add Nominee
                 </button>
@@ -935,11 +1121,44 @@ export default function App() {
               onChange={(e) => setEditingCategory({ ...editingCategory, description: e.target.value })}
               placeholder="Description"
             />
-            <textarea
-              value={editingCategory.criteria}
-              onChange={(e) => setEditingCategory({ ...editingCategory, criteria: e.target.value })}
-              placeholder="Criteria JSON"
-            />
+            <div className="criteria-builder">
+              <label>Criteria</label>
+              <div className="criteria-pills">
+                {editingCategoryCriteria.length === 0 ? (
+                  <span className="muted">No criteria selected</span>
+                ) : (
+                  editingCategoryCriteria.map((metric) => (
+                    <button
+                      type="button"
+                      key={metric}
+                      className="pill"
+                      onClick={() => removeEditingCategoryCriterion(metric)}
+                      title="Remove criterion"
+                    >
+                      {metric} x
+                    </button>
+                  ))
+                )}
+              </div>
+              <div className="criteria-input">
+                <input
+                  value={editingCriterion}
+                  onChange={(e) => setEditingCriterion(e.target.value)}
+                  placeholder="Add criterion"
+                />
+                <button type="button" className="ghost" onClick={addEditingCategoryCriterion}>
+                  Add
+                </button>
+              </div>
+              <details className="advanced-block">
+                <summary>Advanced: edit criteria JSON</summary>
+                <textarea
+                  value={editingCategory.criteria}
+                  onChange={(e) => setEditingCategory({ ...editingCategory, criteria: e.target.value })}
+                  placeholder="Criteria JSON"
+                />
+              </details>
+            </div>
             <div className="template-row">
               <button type="submit" disabled={busy}>
                 Save
@@ -987,11 +1206,14 @@ export default function App() {
               onChange={(e) => setEditingNominee({ ...editingNominee, videoUrl: e.target.value })}
               placeholder="Video URL"
             />
-            <textarea
-              value={editingNominee.stats}
-              onChange={(e) => setEditingNominee({ ...editingNominee, stats: e.target.value })}
-              placeholder="Stats JSON"
-            />
+            <details className="advanced-block">
+              <summary>Advanced: nominee stats JSON</summary>
+              <textarea
+                value={editingNominee.stats}
+                onChange={(e) => setEditingNominee({ ...editingNominee, stats: e.target.value })}
+                placeholder="Stats JSON"
+              />
+            </details>
             <div className="template-row">
               <button type="submit" disabled={busy}>
                 Save
