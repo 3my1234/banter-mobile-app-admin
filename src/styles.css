@@ -173,6 +173,10 @@ button:disabled {
   gap: 14px;
 }
 
+.page-error {
+  margin: 0;
+}
+
 .content-header {
   display: flex;
   justify-content: space-between;
@@ -264,6 +268,115 @@ button:disabled {
   gap: 8px;
 }
 
+.template-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 10px;
+}
+
+.category-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #0b1220;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.category-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.category-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mini-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: #dbe8ff;
+}
+
+.mini-stats span {
+  background: #111a2c;
+  border: 1px solid #253754;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.nominee-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nominee-row {
+  border: 1px solid #21314b;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.nominee-row p {
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nominee-row small {
+  color: #d0e0ff;
+}
+
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #335180;
+  color: #cde2ff;
+  background: #13213a;
+  border-radius: 8px;
+  padding: 7px 10px;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 6, 12, 0.78);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  z-index: 40;
+}
+
+.modal-form {
+  width: min(640px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -335,5 +448,9 @@ pre {
   .split {
     grid-template-columns: 1fr;
   }
-}
 
+  .nominee-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

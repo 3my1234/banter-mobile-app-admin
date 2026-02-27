@@ -30,14 +30,29 @@ type UserRow = {
   };
 };
 
+type PcaNominee = {
+  id: string;
+  name: string;
+  team?: string | null;
+  country?: string | null;
+  position?: string | null;
+  imageUrl?: string | null;
+  videoUrl?: string | null;
+  stats?: Record<string, string | number> | null;
+  voteCount: number;
+};
+
 type PcaCategory = {
   id: string;
   sport: "SOCCER" | "BASKETBALL";
   season: string;
   categoryType: string;
   title: string;
-  subtitle?: string;
-  nominees: Array<{ id: string; name: string; voteCount: number }>;
+  subtitle?: string | null;
+  roundLabel?: string | null;
+  description?: string | null;
+  criteria?: unknown;
+  nominees: PcaNominee[];
   _count?: {
     votes: number;
   };
@@ -51,20 +66,62 @@ const NAV_ITEMS: Array<{ id: AppTab; label: string }> = [
   { id: "pca", label: "PCA Manager" },
 ];
 
+const CATEGORY_CRITERIA_TEMPLATES: Record<string, string[]> = {
+  GOAL_OF_WEEK: ["goal_quality", "difficulty", "match_impact", "technique"],
+  PLAYER_OF_MONTH: ["goals", "assists", "duels_won", "consistency"],
+  TOURNAMENT_AWARD: ["tournament_impact", "key_moments", "consistency", "leadership"],
+  BALLON_DOR_PEOPLES_CHOICE: [
+    "individual_performance",
+    "team_success",
+    "consistency",
+    "fair_play",
+    "big_match_impact",
+  ],
+  CUSTOM: [],
+};
+
+const NOMINEE_STATS_TEMPLATES: Record<string, Record<string, number>> = {
+  STRIKER: { goals: 0, assists: 0, shots_on_target: 0, chance_conversion_pct: 0 },
+  MIDFIELDER: { assists: 0, key_passes: 0, progressive_passes: 0, duels_won: 0 },
+  DEFENDER: { tackles_won: 0, interceptions: 0, clearances: 0, duels_won: 0 },
+  KEEPER: { saves: 0, clean_sheets: 0, save_percentage: 0, goals_prevented: 0 },
+  BASKETBALL_GUARD: { points: 0, assists: 0, steals: 0, fg_percentage: 0 },
+  BASKETBALL_FORWARD: { points: 0, rebounds: 0, assists: 0, fg_percentage: 0 },
+  BASKETBALL_CENTER: { points: 0, rebounds: 0, blocks: 0, fg_percentage: 0 },
+};
+
 async function request(path: string, token?: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers || {});
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.message || data?.error || "Request failed");
-  return data;
+  const contentType = res.headers.get("content-type") || "";
+  const body = contentType.includes("application/json")
+    ? await res.json().catch(() => ({}))
+    : await res.text().catch(() => "");
+  if (!res.ok) {
+    const message =
+      typeof body === "string"
+        ? body || `Request failed (${res.status})`
+        : body?.message || body?.error || `Request failed (${res.status})`;
+    throw new Error(message);
+  }
+  return typeof body === "string" ? {} : body;
 }
 
 function formatRol(raw: string | number | bigint | undefined) {
   const value = Number(raw || 0);
   if (!Number.isFinite(value)) return "0";
   return (value / 1e8).toLocaleString(undefined, { maximumFractionDigits: 8 });
+}
+
+function jsonText(value: unknown) {
+  if (!value) return "{}";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "{}";
+  }
 }
 
 export default function App() {
@@ -89,7 +146,7 @@ export default function App() {
     subtitle: "",
     roundLabel: "",
     description: "",
-    criteria: "{}",
+    criteria: JSON.stringify(CATEGORY_CRITERIA_TEMPLATES.GOAL_OF_WEEK, null, 2),
   });
 
   const [nomineeForm, setNomineeForm] = useState({
@@ -102,6 +159,29 @@ export default function App() {
     videoUrl: "",
     stats: "{}",
   });
+
+  const [editingCategory, setEditingCategory] = useState<null | {
+    id: string;
+    sport: string;
+    season: string;
+    categoryType: string;
+    title: string;
+    subtitle: string;
+    roundLabel: string;
+    description: string;
+    criteria: string;
+  }>(null);
+
+  const [editingNominee, setEditingNominee] = useState<null | {
+    id: string;
+    name: string;
+    team: string;
+    country: string;
+    position: string;
+    imageUrl: string;
+    videoUrl: string;
+    stats: string;
+  }>(null);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -216,6 +296,24 @@ export default function App() {
     }
   }
 
+  function applyCategoryTemplate(type: string) {
+    const template = CATEGORY_CRITERIA_TEMPLATES[type] || [];
+    setCategoryForm((prev) => ({
+      ...prev,
+      categoryType: type,
+      criteria: JSON.stringify(template, null, 2),
+    }));
+  }
+
+  function applyNomineeStatsTemplate(templateKey: string) {
+    const template = NOMINEE_STATS_TEMPLATES[templateKey];
+    if (!template) return;
+    setNomineeForm((prev) => ({
+      ...prev,
+      stats: JSON.stringify(template, null, 2),
+    }));
+  }
+
   async function createCategory(e: FormEvent) {
     e.preventDefault();
     try {
@@ -263,6 +361,105 @@ export default function App() {
       await loadAll();
     } catch (err: any) {
       setError(err?.message || "Failed to add nominee");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function beginEditCategory(category: PcaCategory) {
+    setEditingCategory({
+      id: category.id,
+      sport: category.sport,
+      season: category.season,
+      categoryType: category.categoryType,
+      title: category.title,
+      subtitle: category.subtitle || "",
+      roundLabel: category.roundLabel || "",
+      description: category.description || "",
+      criteria: jsonText(category.criteria),
+    });
+  }
+
+  async function saveCategoryEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!editingCategory) return;
+    try {
+      setBusy(true);
+      setError("");
+      const { id, ...payload } = editingCategory;
+      await request(`/admin/pca/categories/${id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      setEditingCategory(null);
+      await loadAll();
+    } catch (err: any) {
+      setError(err?.message || "Failed to update category");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteCategory(id: string) {
+    if (!window.confirm("Delete this category and all nominees/votes inside it?")) return;
+    try {
+      setBusy(true);
+      setError("");
+      await request(`/admin/pca/categories/${id}`, token, {
+        method: "DELETE",
+      });
+      await loadAll();
+    } catch (err: any) {
+      setError(err?.message || "Failed to delete category");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function beginEditNominee(nominee: PcaNominee) {
+    setEditingNominee({
+      id: nominee.id,
+      name: nominee.name,
+      team: nominee.team || "",
+      country: nominee.country || "",
+      position: nominee.position || "",
+      imageUrl: nominee.imageUrl || "",
+      videoUrl: nominee.videoUrl || "",
+      stats: jsonText(nominee.stats),
+    });
+  }
+
+  async function saveNomineeEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!editingNominee) return;
+    try {
+      setBusy(true);
+      setError("");
+      const { id, ...payload } = editingNominee;
+      await request(`/admin/pca/nominees/${id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      setEditingNominee(null);
+      await loadAll();
+    } catch (err: any) {
+      setError(err?.message || "Failed to update nominee");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteNominee(id: string) {
+    if (!window.confirm("Delete this nominee?")) return;
+    try {
+      setBusy(true);
+      setError("");
+      await request(`/admin/pca/nominees/${id}`, token, {
+        method: "DELETE",
+      });
+      await loadAll();
+    } catch (err: any) {
+      setError(err?.message || "Failed to delete nominee");
     } finally {
       setBusy(false);
     }
@@ -407,21 +604,29 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {users.map((user) => (
-                        <tr key={user.id}>
-                          <td>{user.email || "-"}</td>
-                          <td>{user.displayName || user.username || "-"}</td>
-                          <td>{user.voteBalance}</td>
-                          <td>{formatRol(user.rolBalanceRaw)}</td>
-                          <td>{user._count?.posts ?? 0}</td>
-                          <td>{user._count?.payments ?? 0}</td>
-                          <td>
-                            <button className="ghost" onClick={() => void openUser(user.id)}>
-                              View
-                            </button>
+                      {users.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="muted">
+                            No users found.
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        users.map((user) => (
+                          <tr key={user.id}>
+                            <td>{user.email || "-"}</td>
+                            <td>{user.displayName || user.username || "-"}</td>
+                            <td>{user.voteBalance}</td>
+                            <td>{formatRol(user.rolBalanceRaw)}</td>
+                            <td>{user._count?.posts ?? 0}</td>
+                            <td>{user._count?.payments ?? 0}</td>
+                            <td>
+                              <button className="ghost" onClick={() => void openUser(user.id)}>
+                                View
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -490,7 +695,7 @@ export default function App() {
                 />
                 <select
                   value={categoryForm.categoryType}
-                  onChange={(e) => setCategoryForm({ ...categoryForm, categoryType: e.target.value })}
+                  onChange={(e) => applyCategoryTemplate(e.target.value)}
                 >
                   <option value="GOAL_OF_WEEK">GOAL_OF_WEEK</option>
                   <option value="PLAYER_OF_MONTH">PLAYER_OF_MONTH</option>
@@ -562,8 +767,26 @@ export default function App() {
                 <input
                   value={nomineeForm.position}
                   onChange={(e) => setNomineeForm({ ...nomineeForm, position: e.target.value })}
-                  placeholder="Position"
+                  placeholder="Position / Role"
                 />
+                <div className="template-row">
+                  <button type="button" className="ghost" onClick={() => applyNomineeStatsTemplate("STRIKER")}>
+                    Striker
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => applyNomineeStatsTemplate("MIDFIELDER")}
+                  >
+                    Midfielder
+                  </button>
+                  <button type="button" className="ghost" onClick={() => applyNomineeStatsTemplate("DEFENDER")}>
+                    Defender
+                  </button>
+                  <button type="button" className="ghost" onClick={() => applyNomineeStatsTemplate("KEEPER")}>
+                    Keeper
+                  </button>
+                </div>
                 <input
                   value={nomineeForm.imageUrl}
                   onChange={(e) => setNomineeForm({ ...nomineeForm, imageUrl: e.target.value })}
@@ -585,46 +808,201 @@ export default function App() {
               </form>
             </section>
 
-            <section className="card table-card">
+            <section className="card">
               <h3>Current PCA Categories</h3>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Sport</th>
-                      <th>Season</th>
-                      <th>Title</th>
-                      <th>Type</th>
-                      <th>Nominees</th>
-                      <th>Total Votes</th>
-                      <th>Top Nominee</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {categories.map((category) => {
-                      const topNominee =
-                        category.nominees.length > 0
-                          ? [...category.nominees].sort((a, b) => b.voteCount - a.voteCount)[0]
-                          : null;
-                      return (
-                        <tr key={category.id}>
-                          <td>{category.sport}</td>
-                          <td>{category.season}</td>
-                          <td>{category.title}</td>
-                          <td>{category.categoryType}</td>
-                          <td>{category.nominees.length}</td>
-                          <td>{category._count?.votes ?? 0}</td>
-                          <td>{topNominee ? `${topNominee.name} (${topNominee.voteCount})` : "-"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="category-grid">
+                {categories.map((category) => {
+                  const topNominee =
+                    category.nominees.length > 0
+                      ? [...category.nominees].sort((a, b) => b.voteCount - a.voteCount)[0]
+                      : null;
+                  return (
+                    <article className="category-card" key={category.id}>
+                      <div className="category-head">
+                        <div>
+                          <strong>{category.title}</strong>
+                          <p>
+                            {category.sport} - {category.season} - {category.categoryType}
+                          </p>
+                        </div>
+                        <div className="template-row">
+                          <button className="ghost" onClick={() => beginEditCategory(category)}>
+                            Edit
+                          </button>
+                          <button className="ghost danger" onClick={() => void deleteCategory(category.id)}>
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="mini-stats">
+                        <span>Nominees: {category.nominees.length}</span>
+                        <span>Total votes: {category._count?.votes ?? 0}</span>
+                        <span>Leader: {topNominee ? `${topNominee.name} (${topNominee.voteCount})` : "-"}</span>
+                      </div>
+
+                      <div className="nominee-list">
+                        {category.nominees.length === 0 ? (
+                          <p className="muted">No nominees yet.</p>
+                        ) : (
+                          category.nominees.map((nominee) => (
+                            <div className="nominee-row" key={nominee.id}>
+                              <div>
+                                <strong>{nominee.name}</strong>
+                                <p>
+                                  {[nominee.team, nominee.position, nominee.country]
+                                    .filter(Boolean)
+                                    .join(" - ") || "No metadata"}
+                                </p>
+                                <small>Votes: {nominee.voteCount}</small>
+                              </div>
+                              <div className="template-row">
+                                {nominee.imageUrl ? (
+                                  <a href={nominee.imageUrl} target="_blank" rel="noreferrer" className="link-btn">
+                                    Image
+                                  </a>
+                                ) : null}
+                                {nominee.videoUrl ? (
+                                  <a href={nominee.videoUrl} target="_blank" rel="noreferrer" className="link-btn">
+                                    Video
+                                  </a>
+                                ) : null}
+                                <button className="ghost" onClick={() => beginEditNominee(nominee)}>
+                                  Edit
+                                </button>
+                                <button className="ghost danger" onClick={() => void deleteNominee(nominee.id)}>
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             </section>
           </>
         )}
       </main>
+
+      {editingCategory ? (
+        <div className="modal-backdrop" onClick={() => setEditingCategory(null)}>
+          <form className="card modal-form" onClick={(e) => e.stopPropagation()} onSubmit={saveCategoryEdit}>
+            <h3>Edit Category</h3>
+            <select
+              value={editingCategory.sport}
+              onChange={(e) => setEditingCategory({ ...editingCategory, sport: e.target.value })}
+            >
+              <option value="SOCCER">SOCCER</option>
+              <option value="BASKETBALL">BASKETBALL</option>
+            </select>
+            <input
+              value={editingCategory.season}
+              onChange={(e) => setEditingCategory({ ...editingCategory, season: e.target.value })}
+              placeholder="Season"
+              required
+            />
+            <select
+              value={editingCategory.categoryType}
+              onChange={(e) => setEditingCategory({ ...editingCategory, categoryType: e.target.value })}
+            >
+              <option value="GOAL_OF_WEEK">GOAL_OF_WEEK</option>
+              <option value="PLAYER_OF_MONTH">PLAYER_OF_MONTH</option>
+              <option value="TOURNAMENT_AWARD">TOURNAMENT_AWARD</option>
+              <option value="BALLON_DOR_PEOPLES_CHOICE">BALLON_DOR_PEOPLES_CHOICE</option>
+              <option value="CUSTOM">CUSTOM</option>
+            </select>
+            <input
+              value={editingCategory.title}
+              onChange={(e) => setEditingCategory({ ...editingCategory, title: e.target.value })}
+              placeholder="Title"
+              required
+            />
+            <input
+              value={editingCategory.subtitle}
+              onChange={(e) => setEditingCategory({ ...editingCategory, subtitle: e.target.value })}
+              placeholder="Subtitle"
+            />
+            <input
+              value={editingCategory.roundLabel}
+              onChange={(e) => setEditingCategory({ ...editingCategory, roundLabel: e.target.value })}
+              placeholder="Round label"
+            />
+            <textarea
+              value={editingCategory.description}
+              onChange={(e) => setEditingCategory({ ...editingCategory, description: e.target.value })}
+              placeholder="Description"
+            />
+            <textarea
+              value={editingCategory.criteria}
+              onChange={(e) => setEditingCategory({ ...editingCategory, criteria: e.target.value })}
+              placeholder="Criteria JSON"
+            />
+            <div className="template-row">
+              <button type="submit" disabled={busy}>
+                Save
+              </button>
+              <button type="button" className="ghost" onClick={() => setEditingCategory(null)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {editingNominee ? (
+        <div className="modal-backdrop" onClick={() => setEditingNominee(null)}>
+          <form className="card modal-form" onClick={(e) => e.stopPropagation()} onSubmit={saveNomineeEdit}>
+            <h3>Edit Nominee</h3>
+            <input
+              value={editingNominee.name}
+              onChange={(e) => setEditingNominee({ ...editingNominee, name: e.target.value })}
+              placeholder="Name"
+              required
+            />
+            <input
+              value={editingNominee.team}
+              onChange={(e) => setEditingNominee({ ...editingNominee, team: e.target.value })}
+              placeholder="Team"
+            />
+            <input
+              value={editingNominee.country}
+              onChange={(e) => setEditingNominee({ ...editingNominee, country: e.target.value })}
+              placeholder="Country"
+            />
+            <input
+              value={editingNominee.position}
+              onChange={(e) => setEditingNominee({ ...editingNominee, position: e.target.value })}
+              placeholder="Position"
+            />
+            <input
+              value={editingNominee.imageUrl}
+              onChange={(e) => setEditingNominee({ ...editingNominee, imageUrl: e.target.value })}
+              placeholder="Image URL"
+            />
+            <input
+              value={editingNominee.videoUrl}
+              onChange={(e) => setEditingNominee({ ...editingNominee, videoUrl: e.target.value })}
+              placeholder="Video URL"
+            />
+            <textarea
+              value={editingNominee.stats}
+              onChange={(e) => setEditingNominee({ ...editingNominee, stats: e.target.value })}
+              placeholder="Stats JSON"
+            />
+            <div className="template-row">
+              <button type="submit" disabled={busy}>
+                Save
+              </button>
+              <button type="button" className="ghost" onClick={() => setEditingNominee(null)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }
