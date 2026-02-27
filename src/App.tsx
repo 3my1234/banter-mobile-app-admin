@@ -84,6 +84,7 @@ export default function App() {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [warning, setWarning] = useState("");
 
   const loggedIn = Boolean(token);
 
@@ -105,14 +106,39 @@ export default function App() {
     try {
       setBusy(true);
       setError("");
-      const [overviewRes, usersRes, categoryRes] = await Promise.all([
+      setWarning("");
+      const [overviewRes, usersRes, categoryRes] = await Promise.allSettled([
         request("/admin/overview", token),
         request("/admin/users?limit=50", token),
         request("/admin/pca/categories", token),
       ]);
-      setOverview(overviewRes.overview || null);
-      setUsers(usersRes.users || []);
-      setCategories(categoryRes.categories || []);
+
+      if (overviewRes.status === "fulfilled") {
+        setOverview(overviewRes.value.overview || null);
+      } else {
+        setError((prev) =>
+          prev ? `${prev}; Overview failed` : overviewRes.reason?.message || "Overview failed"
+        );
+      }
+
+      if (usersRes.status === "fulfilled") {
+        setUsers(usersRes.value.users || []);
+      } else {
+        setError((prev) =>
+          prev ? `${prev}; Users failed` : usersRes.reason?.message || "Users failed"
+        );
+      }
+
+      if (categoryRes.status === "fulfilled") {
+        setCategories(categoryRes.value.categories || []);
+        if (categoryRes.value.warning) {
+          setWarning(categoryRes.value.warning);
+        }
+      } else {
+        setError((prev) =>
+          prev ? `${prev}; PCA failed` : categoryRes.reason?.message || "PCA failed"
+        );
+      }
     } catch (err: any) {
       setError(err?.message || "Failed to load admin data");
     } finally {
@@ -253,6 +279,7 @@ export default function App() {
       </nav>
 
       {error ? <p className="error page-error">{error}</p> : null}
+      {warning ? <p className="warning page-error">{warning}</p> : null}
 
       {tab === "overview" && (
         <section className="grid">
@@ -460,4 +487,3 @@ export default function App() {
     </div>
   );
 }
-

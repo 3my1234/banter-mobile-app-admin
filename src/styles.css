@@ -148,6 +148,10 @@ th {
   color: #fb7185;
 }
 
+.warning {
+  color: #fbbf24;
+}
+
 .page-error {
   margin-top: 8px;
 }
@@ -190,4 +194,3 @@ pre {
   overflow: auto;
   font-size: 12px;
 }
-
