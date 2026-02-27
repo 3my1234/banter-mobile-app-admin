@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://sportbanter.online/api";
 const TOKEN_KEY = "banter_admin_token";
@@ -234,6 +234,7 @@ export default function App() {
   const [editingCriterion, setEditingCriterion] = useState("");
 
   const [busy, setBusy] = useState(false);
+  const [uploadingField, setUploadingField] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
 
@@ -558,6 +559,57 @@ export default function App() {
       setError(err?.message || "Failed to delete nominee");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function uploadFileToS3(uploadUrl: string, file: File) {
+    const response = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+      },
+      body: file,
+    });
+    if (!response.ok) {
+      const details = await response.text().catch(() => "");
+      throw new Error(`Upload failed (${response.status}) ${details}`.trim());
+    }
+  }
+
+  async function handleNomineeFileSelected(
+    event: ChangeEvent<HTMLInputElement>,
+    mode: "create" | "edit",
+    target: "image" | "video"
+  ) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    const fieldKey = `${mode}-${target}`;
+    const urlField = target === "image" ? "imageUrl" : "videoUrl";
+
+    try {
+      setUploadingField(fieldKey);
+      setError("");
+      const presign = await request("/admin/uploads/presign", token, {
+        method: "POST",
+        body: JSON.stringify({
+          filename: file.name,
+          mimeType: file.type,
+          kind: target,
+        }),
+      });
+      await uploadFileToS3(presign.uploadUrl, file);
+
+      if (mode === "edit") {
+        setEditingNominee((prev) => (prev ? { ...prev, [urlField]: presign.viewUrl } : prev));
+      } else {
+        setNomineeForm((prev) => ({ ...prev, [urlField]: presign.viewUrl }));
+      }
+    } catch (err: any) {
+      setError(err?.message || "Failed to upload file");
+    } finally {
+      setUploadingField(null);
     }
   }
 
@@ -997,11 +1049,29 @@ export default function App() {
                   onChange={(e) => setNomineeForm({ ...nomineeForm, imageUrl: e.target.value })}
                   placeholder="Image URL"
                 />
+                <label className="ghost upload-btn">
+                  Upload image
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => void handleNomineeFileSelected(e, "create", "image")}
+                  />
+                </label>
+                {uploadingField === "create-image" ? <small className="muted">Uploading image...</small> : null}
                 <input
                   value={nomineeForm.videoUrl}
                   onChange={(e) => setNomineeForm({ ...nomineeForm, videoUrl: e.target.value })}
                   placeholder="Video URL"
                 />
+                <label className="ghost upload-btn">
+                  Upload video
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={(e) => void handleNomineeFileSelected(e, "create", "video")}
+                  />
+                </label>
+                {uploadingField === "create-video" ? <small className="muted">Uploading video...</small> : null}
                 <details className="advanced-block">
                   <summary>Advanced: nominee stats JSON</summary>
                   <textarea
@@ -1223,11 +1293,29 @@ export default function App() {
               onChange={(e) => setEditingNominee({ ...editingNominee, imageUrl: e.target.value })}
               placeholder="Image URL"
             />
+            <label className="ghost upload-btn">
+              Upload image
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => void handleNomineeFileSelected(e, "edit", "image")}
+              />
+            </label>
+            {uploadingField === "edit-image" ? <small className="muted">Uploading image...</small> : null}
             <input
               value={editingNominee.videoUrl}
               onChange={(e) => setEditingNominee({ ...editingNominee, videoUrl: e.target.value })}
               placeholder="Video URL"
             />
+            <label className="ghost upload-btn">
+              Upload video
+              <input
+                type="file"
+                accept="video/*"
+                onChange={(e) => void handleNomineeFileSelected(e, "edit", "video")}
+              />
+            </label>
+            {uploadingField === "edit-video" ? <small className="muted">Uploading video...</small> : null}
             <details className="advanced-block">
               <summary>Advanced: nominee stats JSON</summary>
               <textarea
