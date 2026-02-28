@@ -211,6 +211,10 @@ function notificationMessage(notification: any) {
   return notification?.title || "Notification update";
 }
 
+function formatStatKey(key: string) {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export default function App() {
   const [token, setToken] = useState<string>(() => localStorage.getItem(TOKEN_KEY) || "");
   const [tab, setTab] = useState<AppTab>("overview");
@@ -1296,6 +1300,13 @@ export default function App() {
                                     .join(" - ") || "No metadata"}
                                 </p>
                                 <small>Votes: {nominee.voteCount}</small>
+                                {nominee.stats && Object.keys(nominee.stats).length > 0 ? (
+                                  <p>
+                                    {Object.entries(nominee.stats)
+                                      .map(([key, value]) => `${formatStatKey(key)}: ${value}`)
+                                      .join(" | ")}
+                                  </p>
+                                ) : null}
                               </div>
                               <div className="template-row">
                                 {nominee.imageUrl ? (
