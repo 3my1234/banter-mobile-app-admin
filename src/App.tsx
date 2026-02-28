@@ -146,6 +146,46 @@ function criteriaToJson(criteria: string[]) {
   return JSON.stringify(Array.from(new Set(criteria.map((item) => item.trim()).filter(Boolean))), null, 2);
 }
 
+function parseStatsObject(value: unknown): Record<string, string | number> {
+  if (!value) return {};
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return Object.entries(value as Record<string, unknown>).reduce<Record<string, string | number>>(
+      (acc, [key, raw]) => {
+        if (!key.trim()) return acc;
+        if (typeof raw === "number") {
+          acc[key] = raw;
+          return acc;
+        }
+        if (typeof raw === "string") {
+          const trimmed = raw.trim();
+          if (trimmed === "") return acc;
+          const asNumber = Number(trimmed);
+          acc[key] = Number.isFinite(asNumber) && /^-?\d+(\.\d+)?$/.test(trimmed) ? asNumber : trimmed;
+          return acc;
+        }
+        if (raw != null) {
+          acc[key] = String(raw);
+        }
+        return acc;
+      },
+      {}
+    );
+  }
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parseStatsObject(parsed);
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function statsToJson(stats: Record<string, string | number>) {
+  return JSON.stringify(stats, null, 2);
+}
+
 function shortHash(value?: string | null) {
   if (!value) return "-";
   if (value.length <= 16) return value;
@@ -232,6 +272,10 @@ export default function App() {
   }>(null);
   const [newCriterion, setNewCriterion] = useState("");
   const [editingCriterion, setEditingCriterion] = useState("");
+  const [newNomineeStatKey, setNewNomineeStatKey] = useState("");
+  const [newNomineeStatValue, setNewNomineeStatValue] = useState("");
+  const [newEditingStatKey, setNewEditingStatKey] = useState("");
+  const [newEditingStatValue, setNewEditingStatValue] = useState("");
 
   const [busy, setBusy] = useState(false);
   const [uploadingField, setUploadingField] = useState<string | null>(null);
@@ -243,6 +287,11 @@ export default function App() {
   const editingCategoryCriteria = useMemo(
     () => parseCriteriaList(editingCategory?.criteria || "[]"),
     [editingCategory?.criteria]
+  );
+  const nomineeStats = useMemo(() => parseStatsObject(nomineeForm.stats), [nomineeForm.stats]);
+  const editingNomineeStats = useMemo(
+    () => parseStatsObject(editingNominee?.stats || "{}"),
+    [editingNominee?.stats]
   );
 
   const pageTitle = useMemo(() => {
@@ -330,6 +379,10 @@ export default function App() {
     setCategories([]);
     setNewCriterion("");
     setEditingCriterion("");
+    setNewNomineeStatKey("");
+    setNewNomineeStatValue("");
+    setNewEditingStatKey("");
+    setNewEditingStatValue("");
   }
 
   async function searchUsers() {
@@ -370,8 +423,79 @@ export default function App() {
     if (!template) return;
     setNomineeForm((prev) => ({
       ...prev,
-      stats: JSON.stringify(template, null, 2),
+      stats: statsToJson(template),
     }));
+  }
+
+  function updateNomineeStatValue(key: string, value: string) {
+    const next = { ...nomineeStats } as Record<string, string | number>;
+    const trimmed = value.trim();
+    if (trimmed === "") {
+      next[key] = "";
+    } else {
+      const asNumber = Number(trimmed);
+      next[key] = Number.isFinite(asNumber) && /^-?\d+(\.\d+)?$/.test(trimmed) ? asNumber : trimmed;
+    }
+    setNomineeForm((prev) => ({ ...prev, stats: statsToJson(next) }));
+  }
+
+  function removeNomineeStat(key: string) {
+    const next = { ...nomineeStats };
+    delete next[key];
+    setNomineeForm((prev) => ({ ...prev, stats: statsToJson(next) }));
+  }
+
+  function addNomineeStat() {
+    const key = newNomineeStatKey.trim().toLowerCase().replace(/\s+/g, "_");
+    if (!key) return;
+    const next = { ...nomineeStats } as Record<string, string | number>;
+    const trimmedValue = newNomineeStatValue.trim();
+    if (!trimmedValue) {
+      next[key] = 0;
+    } else {
+      const asNumber = Number(trimmedValue);
+      next[key] = Number.isFinite(asNumber) && /^-?\d+(\.\d+)?$/.test(trimmedValue) ? asNumber : trimmedValue;
+    }
+    setNomineeForm((prev) => ({ ...prev, stats: statsToJson(next) }));
+    setNewNomineeStatKey("");
+    setNewNomineeStatValue("");
+  }
+
+  function updateEditingNomineeStatValue(key: string, value: string) {
+    if (!editingNominee) return;
+    const next = { ...editingNomineeStats } as Record<string, string | number>;
+    const trimmed = value.trim();
+    if (trimmed === "") {
+      next[key] = "";
+    } else {
+      const asNumber = Number(trimmed);
+      next[key] = Number.isFinite(asNumber) && /^-?\d+(\.\d+)?$/.test(trimmed) ? asNumber : trimmed;
+    }
+    setEditingNominee({ ...editingNominee, stats: statsToJson(next) });
+  }
+
+  function removeEditingNomineeStat(key: string) {
+    if (!editingNominee) return;
+    const next = { ...editingNomineeStats };
+    delete next[key];
+    setEditingNominee({ ...editingNominee, stats: statsToJson(next) });
+  }
+
+  function addEditingNomineeStat() {
+    if (!editingNominee) return;
+    const key = newEditingStatKey.trim().toLowerCase().replace(/\s+/g, "_");
+    if (!key) return;
+    const next = { ...editingNomineeStats } as Record<string, string | number>;
+    const trimmedValue = newEditingStatValue.trim();
+    if (!trimmedValue) {
+      next[key] = 0;
+    } else {
+      const asNumber = Number(trimmedValue);
+      next[key] = Number.isFinite(asNumber) && /^-?\d+(\.\d+)?$/.test(trimmedValue) ? asNumber : trimmedValue;
+    }
+    setEditingNominee({ ...editingNominee, stats: statsToJson(next) });
+    setNewEditingStatKey("");
+    setNewEditingStatValue("");
   }
 
   function addCategoryCriterion() {
@@ -454,6 +578,8 @@ export default function App() {
         videoUrl: "",
         stats: "{}",
       }));
+      setNewNomineeStatKey("");
+      setNewNomineeStatValue("");
       await loadAll();
     } catch (err: any) {
       setError(err?.message || "Failed to add nominee");
@@ -524,6 +650,8 @@ export default function App() {
       videoUrl: nominee.videoUrl || "",
       stats: jsonText(nominee.stats),
     });
+    setNewEditingStatKey("");
+    setNewEditingStatValue("");
   }
 
   async function saveNomineeEdit(e: FormEvent) {
@@ -1072,6 +1200,41 @@ export default function App() {
                   />
                 </label>
                 {uploadingField === "create-video" ? <small className="muted">Uploading video...</small> : null}
+                <div className="stats-editor">
+                  <label>Nominee Stats</label>
+                  {Object.keys(nomineeStats).length === 0 ? (
+                    <p className="muted">No stats set yet. Add at least one stat.</p>
+                  ) : (
+                    Object.entries(nomineeStats).map(([key, value]) => (
+                      <div className="stat-row" key={key}>
+                        <span>{key.replace(/_/g, " ")}</span>
+                        <input
+                          value={String(value ?? "")}
+                          onChange={(e) => updateNomineeStatValue(key, e.target.value)}
+                          placeholder="Value"
+                        />
+                        <button type="button" className="ghost danger" onClick={() => removeNomineeStat(key)}>
+                          Remove
+                        </button>
+                      </div>
+                    ))
+                  )}
+                  <div className="stat-add-row">
+                    <input
+                      value={newNomineeStatKey}
+                      onChange={(e) => setNewNomineeStatKey(e.target.value)}
+                      placeholder="stat key (e.g. goals)"
+                    />
+                    <input
+                      value={newNomineeStatValue}
+                      onChange={(e) => setNewNomineeStatValue(e.target.value)}
+                      placeholder="value"
+                    />
+                    <button type="button" className="ghost" onClick={addNomineeStat}>
+                      Add stat
+                    </button>
+                  </div>
+                </div>
                 <details className="advanced-block">
                   <summary>Advanced: nominee stats JSON</summary>
                   <textarea
@@ -1316,6 +1479,41 @@ export default function App() {
               />
             </label>
             {uploadingField === "edit-video" ? <small className="muted">Uploading video...</small> : null}
+            <div className="stats-editor">
+              <label>Nominee Stats</label>
+              {Object.keys(editingNomineeStats).length === 0 ? (
+                <p className="muted">No stats set yet. Add at least one stat.</p>
+              ) : (
+                Object.entries(editingNomineeStats).map(([key, value]) => (
+                  <div className="stat-row" key={key}>
+                    <span>{key.replace(/_/g, " ")}</span>
+                    <input
+                      value={String(value ?? "")}
+                      onChange={(e) => updateEditingNomineeStatValue(key, e.target.value)}
+                      placeholder="Value"
+                    />
+                    <button type="button" className="ghost danger" onClick={() => removeEditingNomineeStat(key)}>
+                      Remove
+                    </button>
+                  </div>
+                ))
+              )}
+              <div className="stat-add-row">
+                <input
+                  value={newEditingStatKey}
+                  onChange={(e) => setNewEditingStatKey(e.target.value)}
+                  placeholder="stat key (e.g. goals)"
+                />
+                <input
+                  value={newEditingStatValue}
+                  onChange={(e) => setNewEditingStatValue(e.target.value)}
+                  placeholder="value"
+                />
+                <button type="button" className="ghost" onClick={addEditingNomineeStat}>
+                  Add stat
+                </button>
+              </div>
+            </div>
             <details className="advanced-block">
               <summary>Advanced: nominee stats JSON</summary>
               <textarea
