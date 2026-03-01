@@ -386,6 +386,14 @@ button:disabled {
   gap: 10px;
 }
 
+.nominee-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .nominee-row p {
   margin: 4px 0;
   color: var(--muted);
@@ -394,6 +402,30 @@ button:disabled {
 
 .nominee-row small {
   color: #d0e0ff;
+}
+
+.nominee-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.nominee-preview-link,
+.nominee-preview-video-wrap {
+  display: block;
+  border: 1px solid #294066;
+  border-radius: 10px;
+  background: #090f1a;
+  overflow: hidden;
+}
+
+.nominee-preview-image,
+.nominee-preview-video {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  display: block;
+  background: #05070d;
 }
 
 .link-btn {

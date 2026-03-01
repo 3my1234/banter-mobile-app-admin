@@ -1,6 +1,8 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://sportbanter.online/api";
+const API_ORIGIN = API_BASE.replace(/\/api\/?$/, "");
+const MEDIA_BASE = (import.meta.env.VITE_MEDIA_BASE_URL || "https://media.sportbanter.online").replace(/\/+$/, "");
 const TOKEN_KEY = "banter_admin_token";
 
 type AdminOverview = {
@@ -213,6 +215,36 @@ function notificationMessage(notification: any) {
 
 function formatStatKey(key: string) {
   return key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function resolveNomineeMediaUrl(url?: string | null) {
+  if (!url) return "";
+  const raw = url.trim();
+  if (!raw) return "";
+  if (raw.includes("/api/public/images/view/")) {
+    const key = raw.split("/api/public/images/view/")[1]?.replace(/^\/+/, "");
+    return key ? `${MEDIA_BASE}/${key}` : raw;
+  }
+  if (raw.includes("/api/images/view/")) {
+    const key = raw.split("/api/images/view/")[1]?.replace(/^\/+/, "");
+    return key ? `${MEDIA_BASE}/${key}` : raw;
+  }
+  if (raw.startsWith("admin-uploads/") || raw.startsWith("user-uploads/")) {
+    return `${MEDIA_BASE}/${raw.replace(/^\/+/, "")}`;
+  }
+  if (raw.startsWith("/api/")) {
+    return `${API_ORIGIN}${raw}`;
+  }
+  if (/^https?:\/\/.+\.s3[.-].*amazonaws\.com\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      const key = parsed.pathname.replace(/^\/+/, "");
+      return key ? `${MEDIA_BASE}/${key}` : raw;
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
 }
 
 export default function App() {
@@ -1292,7 +1324,7 @@ export default function App() {
                         ) : (
                           category.nominees.map((nominee) => (
                             <div className="nominee-row" key={nominee.id}>
-                              <div>
+                              <div className="nominee-main">
                                 <strong>{nominee.name}</strong>
                                 <p>
                                   {[nominee.team, nominee.position, nominee.country]
@@ -1306,6 +1338,35 @@ export default function App() {
                                       .map(([key, value]) => `${formatStatKey(key)}: ${value}`)
                                       .join(" | ")}
                                   </p>
+                                ) : null}
+                                {nominee.imageUrl || nominee.videoUrl ? (
+                                  <div className="nominee-preview-grid">
+                                    {nominee.imageUrl ? (
+                                      <a
+                                        href={resolveNomineeMediaUrl(nominee.imageUrl)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="nominee-preview-link"
+                                      >
+                                        <img
+                                          src={resolveNomineeMediaUrl(nominee.imageUrl)}
+                                          alt={`${nominee.name} image`}
+                                          className="nominee-preview-image"
+                                          loading="lazy"
+                                        />
+                                      </a>
+                                    ) : null}
+                                    {nominee.videoUrl ? (
+                                      <div className="nominee-preview-video-wrap">
+                                        <video
+                                          src={resolveNomineeMediaUrl(nominee.videoUrl)}
+                                          className="nominee-preview-video"
+                                          controls
+                                          preload="metadata"
+                                        />
+                                      </div>
+                                    ) : null}
+                                  </div>
                                 ) : null}
                               </div>
                               <div className="template-row">
