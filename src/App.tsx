@@ -3,6 +3,8 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://sportbanter.online/api";
 const API_ORIGIN = API_BASE.replace(/\/api\/?$/, "");
 const MEDIA_BASE = (import.meta.env.VITE_MEDIA_BASE_URL || "https://media.sportbanter.online").replace(/\/+$/, "");
+const ROLLEY_BASE = (import.meta.env.VITE_ROLLEY_SERVICE_URL || "https://sportbanter.online/rolley").replace(/\/+$/, "");
+const ROLLEY_ADMIN_KEY_DEFAULT = import.meta.env.VITE_ROLLEY_ADMIN_KEY || "";
 const TOKEN_KEY = "banter_admin_token";
 
 type AdminOverview = {
@@ -60,12 +62,32 @@ type PcaCategory = {
   };
 };
 
-type AppTab = "overview" | "users" | "pca";
+type AppTab = "overview" | "users" | "pca" | "rolley";
+type RolleyOutcome = "PENDING" | "WIN" | "LOSS" | "VOID";
+
+type RolleyAdminPick = {
+  id: string;
+  date: string;
+  sport: "SOCCER" | "BASKETBALL";
+  league: string;
+  home_team: string;
+  away_team: string;
+  market: string;
+  selection: string;
+  confidence: number;
+  implied_odds?: number;
+  is_primary?: boolean;
+  settlement_outcome?: RolleyOutcome;
+  settlement_notes?: string | null;
+  settled_at?: string | null;
+  created_at: string;
+};
 
 const NAV_ITEMS: Array<{ id: AppTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "users", label: "Users" },
   { id: "pca", label: "PCA Manager" },
+  { id: "rolley", label: "Rolley Settle" },
 ];
 
 const CATEGORY_CRITERIA_TEMPLATES: Record<string, string[]> = {
@@ -106,6 +128,29 @@ async function request(path: string, token?: string, options: RequestInit = {}) 
       typeof body === "string"
         ? body || `Request failed (${res.status})`
         : body?.message || body?.error || `Request failed (${res.status})`;
+    throw new Error(message);
+  }
+  return typeof body === "string" ? {} : body;
+}
+
+async function requestRolley(
+  path: string,
+  adminKey: string,
+  options: RequestInit = {}
+) {
+  const headers = new Headers(options.headers || {});
+  headers.set("Content-Type", "application/json");
+  if (adminKey.trim()) headers.set("X-Admin-Key", adminKey.trim());
+  const res = await fetch(`${ROLLEY_BASE}${path}`, { ...options, headers });
+  const contentType = res.headers.get("content-type") || "";
+  const body = contentType.includes("application/json")
+    ? await res.json().catch(() => ({}))
+    : await res.text().catch(() => "");
+  if (!res.ok) {
+    const message =
+      typeof body === "string"
+        ? body || `Rolley request failed (${res.status})`
+        : body?.detail || body?.message || body?.error || `Rolley request failed (${res.status})`;
     throw new Error(message);
   }
   return typeof body === "string" ? {} : body;
@@ -261,6 +306,11 @@ export default function App() {
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
   const [categories, setCategories] = useState<PcaCategory[]>([]);
+  const [rolleyAdminKey, setRolleyAdminKey] = useState(ROLLEY_ADMIN_KEY_DEFAULT);
+  const [rolleyDate, setRolleyDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [rolleySport, setRolleySport] = useState<"SOCCER" | "BASKETBALL">("SOCCER");
+  const [rolleyPicks, setRolleyPicks] = useState<RolleyAdminPick[]>([]);
+  const [rolleyLoading, setRolleyLoading] = useState(false);
 
   const [categoryForm, setCategoryForm] = useState({
     sport: "SOCCER",
@@ -333,6 +383,7 @@ export default function App() {
   const pageTitle = useMemo(() => {
     if (tab === "overview") return "Admin Overview";
     if (tab === "users") return "User Management";
+    if (tab === "rolley") return "Rolley Settlement";
     return "PCA Management";
   }, [tab]);
 
@@ -349,6 +400,11 @@ export default function App() {
     if (!loggedIn) return;
     void loadAll();
   }, [loggedIn]);
+
+  useEffect(() => {
+    if (!loggedIn || tab !== "rolley") return;
+    void loadRolleyPicks();
+  }, [loggedIn, tab, rolleyDate, rolleySport]);
 
   async function loadAll() {
     try {
@@ -419,6 +475,8 @@ export default function App() {
     setNewNomineeStatValue("");
     setNewEditingStatKey("");
     setNewEditingStatValue("");
+    setRolleyPicks([]);
+    setRolleyAdminKey(ROLLEY_ADMIN_KEY_DEFAULT);
   }
 
   async function searchUsers() {
@@ -443,6 +501,51 @@ export default function App() {
     } catch (err: any) {
       setError(err?.message || "Failed to load user detail");
     }
+  }
+
+  async function loadRolleyPicks() {
+    try {
+      setRolleyLoading(true);
+      setError("");
+      const query = new URLSearchParams({
+        pick_date: rolleyDate,
+        sport: rolleySport,
+      });
+      const res = await requestRolley(`/api/v1/admin/picks?${query.toString()}`, rolleyAdminKey);
+      setRolleyPicks(Array.isArray(res?.picks) ? res.picks : []);
+    } catch (err: any) {
+      setError(err?.message || "Failed to load Rolley picks");
+      setRolleyPicks([]);
+    } finally {
+      setRolleyLoading(false);
+    }
+  }
+
+  async function settleRolleyPick(pickId: string, outcome: RolleyOutcome) {
+    try {
+      setRolleyLoading(true);
+      setError("");
+      await requestRolley(`/api/v1/admin/picks/${pickId}/settle`, rolleyAdminKey, {
+        method: "POST",
+        body: JSON.stringify({
+          outcome,
+          settled_by: loginEmail || "admin",
+        }),
+      });
+      await loadRolleyPicks();
+    } catch (err: any) {
+      setError(err?.message || "Failed to settle pick");
+    } finally {
+      setRolleyLoading(false);
+    }
+  }
+
+  async function handleRefresh() {
+    if (tab === "rolley") {
+      await loadRolleyPicks();
+      return;
+    }
+    await loadAll();
   }
 
   function applyCategoryTemplate(type: string) {
@@ -841,8 +944,8 @@ export default function App() {
             <h2>{pageTitle}</h2>
             <p>Monitor app activity and configure award campaigns.</p>
           </div>
-          <button onClick={() => void loadAll()} disabled={busy}>
-            {busy ? "Refreshing..." : "Refresh"}
+          <button onClick={() => void handleRefresh()} disabled={busy || rolleyLoading}>
+            {busy || rolleyLoading ? "Refreshing..." : "Refresh"}
           </button>
         </header>
 
@@ -1059,6 +1162,108 @@ export default function App() {
                   </>
                 )}
               </div>
+            </section>
+          </>
+        )}
+
+        {tab === "rolley" && (
+          <>
+            <section className="card">
+              <h3>Daily Pick Settlement</h3>
+              <div className="toolbar" style={{ gridTemplateColumns: "220px 160px 1fr auto" }}>
+                <input type="date" value={rolleyDate} onChange={(e) => setRolleyDate(e.target.value)} />
+                <select value={rolleySport} onChange={(e) => setRolleySport(e.target.value as "SOCCER" | "BASKETBALL")}>
+                  <option value="SOCCER">SOCCER</option>
+                  <option value="BASKETBALL">BASKETBALL</option>
+                </select>
+                <input
+                  value={rolleyAdminKey}
+                  onChange={(e) => setRolleyAdminKey(e.target.value)}
+                  placeholder="Rolley admin key (X-Admin-Key)"
+                />
+                <button className="ghost" onClick={() => void loadRolleyPicks()} disabled={rolleyLoading}>
+                  {rolleyLoading ? "Loading..." : "Load Picks"}
+                </button>
+              </div>
+              <p className="muted" style={{ marginTop: 8 }}>
+                Service: {ROLLEY_BASE}
+              </p>
+            </section>
+
+            <section className="card table-card">
+              <h3>Settlement Queue</h3>
+              {!rolleyPicks.length ? (
+                <p className="muted">No picks found for selected day/sport.</p>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Match</th>
+                        <th>Market</th>
+                        <th>Conf</th>
+                        <th>Odds</th>
+                        <th>Primary</th>
+                        <th>Status</th>
+                        <th>Settled At</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rolleyPicks.map((pick) => (
+                        <tr key={pick.id}>
+                          <td>
+                            <strong>
+                              {pick.home_team} vs {pick.away_team}
+                            </strong>
+                            <div className="muted">{pick.league}</div>
+                          </td>
+                          <td>
+                            {pick.market}: {pick.selection}
+                          </td>
+                          <td>{(pick.confidence * 100).toFixed(2)}%</td>
+                          <td>{pick.implied_odds ? `x${pick.implied_odds.toFixed(3)}` : "-"}</td>
+                          <td>{pick.is_primary ? "Yes" : "No"}</td>
+                          <td>{pick.settlement_outcome || "PENDING"}</td>
+                          <td>{formatDateTime(pick.settled_at)}</td>
+                          <td>
+                            <div className="template-row">
+                              <button
+                                className="ghost"
+                                onClick={() => void settleRolleyPick(pick.id, "WIN")}
+                                disabled={rolleyLoading}
+                              >
+                                Mark WIN
+                              </button>
+                              <button
+                                className="ghost danger"
+                                onClick={() => void settleRolleyPick(pick.id, "LOSS")}
+                                disabled={rolleyLoading}
+                              >
+                                Mark LOSS
+                              </button>
+                              <button
+                                className="ghost"
+                                onClick={() => void settleRolleyPick(pick.id, "VOID")}
+                                disabled={rolleyLoading}
+                              >
+                                Mark VOID
+                              </button>
+                              <button
+                                className="ghost"
+                                onClick={() => void settleRolleyPick(pick.id, "PENDING")}
+                                disabled={rolleyLoading}
+                              >
+                                Reset
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </section>
           </>
         )}
