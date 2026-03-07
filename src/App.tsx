@@ -235,14 +235,36 @@ function statsToJson(stats: Record<string, string | number>) {
 
 function shortHash(value?: string | null) {
   if (!value) return "-";
+  if (typeof value !== "string") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "-";
+    }
+  }
   if (value.length <= 16) return value;
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
+function displayText(value: unknown, fallback = "-") {
+  if (value == null) return fallback;
+  if (typeof value === "string") return value.trim() ? value : fallback;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  try {
+    const text = JSON.stringify(value);
+    return text && text !== "{}" ? text : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const raw = typeof value === "string" ? value : displayText(value);
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
   return date.toLocaleString();
 }
 
@@ -262,7 +284,7 @@ function notificationMessage(notification: any) {
   if (notification?.type === "WALLET_RECEIVE") return "Wallet received funds.";
   if (notification?.type === "WALLET_TRANSFER") return "Wallet transfer sent.";
   if (notification?.type === "VOTE_PURCHASE") return "Vote purchase completed.";
-  return notification?.title || "Notification update";
+  return displayText(notification?.title, "Notification update");
 }
 
 function formatStatKey(key: string) {
@@ -1046,8 +1068,8 @@ export default function App() {
                       ) : (
                         users.map((user) => (
                           <tr key={user.id}>
-                            <td>{user.email || "-"}</td>
-                            <td>{user.displayName || user.username || "-"}</td>
+                            <td>{displayText(user.email)}</td>
+                            <td>{displayText(user.displayName || user.username)}</td>
                             <td>{user.voteBalance}</td>
                             <td>{formatRol(user.rolBalanceRaw)}</td>
                             <td>{user._count?.posts ?? 0}</td>
@@ -1074,11 +1096,11 @@ export default function App() {
                     <div className="kv-grid">
                       <div>
                         <label>Email</label>
-                        <p>{selectedUser.email || "-"}</p>
+                        <p>{displayText(selectedUser.email)}</p>
                       </div>
                       <div>
                         <label>Display Name</label>
-                        <p>{selectedUser.displayName || "-"}</p>
+                        <p>{displayText(selectedUser.displayName)}</p>
                       </div>
                       <div>
                         <label>Vote Balance</label>
@@ -1090,11 +1112,11 @@ export default function App() {
                       </div>
                       <div>
                         <label>Solana</label>
-                        <p>{selectedUser.solanaAddress || "-"}</p>
+                        <p>{displayText(selectedUser.solanaAddress)}</p>
                       </div>
                       <div>
                         <label>Movement</label>
-                        <p>{selectedUser.movementAddress || "-"}</p>
+                        <p>{displayText(selectedUser.movementAddress)}</p>
                       </div>
                     </div>
 
@@ -1106,12 +1128,12 @@ export default function App() {
                         <div className="wallet-list">
                           {selectedUser.wallets.map((wallet: any) => (
                             <article className="wallet-card" key={wallet.id}>
-                              <strong>{wallet.blockchain}</strong>
-                              <p>{wallet.address}</p>
+                              <strong>{displayText(wallet.blockchain)}</strong>
+                              <p>{displayText(wallet.address)}</p>
                               <div className="mini-stats">
                                 {(wallet.walletBalances || []).map((balance: any) => (
                                   <span key={balance.id}>
-                                    {balance.tokenSymbol}: {balance.balance}
+                                    {displayText(balance.tokenSymbol)}: {displayText(balance.balance, "0")}
                                   </span>
                                 ))}
                               </div>
@@ -1141,11 +1163,11 @@ export default function App() {
                               {selectedUser.payments.map((payment: any) => (
                                 <tr key={payment.id}>
                                   <td>{formatDateTime(payment.createdAt)}</td>
-                                  <td>{payment.paymentType}</td>
+                                  <td>{displayText(payment.paymentType)}</td>
                                   <td>
-                                    {payment.amount} {payment.currency}
+                                    {displayText(payment.amount)} {displayText(payment.currency, "")}
                                   </td>
-                                  <td>{payment.status}</td>
+                                  <td>{displayText(payment.status)}</td>
                                   <td>{shortHash(payment.txHash)}</td>
                                 </tr>
                               ))}
@@ -1168,7 +1190,7 @@ export default function App() {
                                 className="row-btn"
                                 onClick={() => setSelectedNotification(notification)}
                               >
-                                <strong>{notification.type}</strong>
+                                <strong>{displayText(notification.type)}</strong>
                                 <span>{notificationMessage(notification)}</span>
                                 <small>{formatDateTime(notification.createdAt)}</small>
                               </button>
