@@ -246,6 +246,13 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString();
 }
 
+function addDaysToDateToken(dateToken: string, days: number) {
+  const [y, m, d] = dateToken.split("-").map((part) => Number(part));
+  const date = new Date(y, (m || 1) - 1, d || 1);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function notificationMessage(notification: any) {
   const direct =
     (typeof notification?.message === "string" && notification.message.trim()) ||
@@ -310,6 +317,7 @@ export default function App() {
   const [rolleyDate, setRolleyDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [rolleySport, setRolleySport] = useState<"SOCCER" | "BASKETBALL">("SOCCER");
   const [rolleyPicks, setRolleyPicks] = useState<RolleyAdminPick[]>([]);
+  const [rolleyHistory, setRolleyHistory] = useState<RolleyAdminPick[]>([]);
   const [rolleyLoading, setRolleyLoading] = useState(false);
 
   const [categoryForm, setCategoryForm] = useState({
@@ -507,15 +515,25 @@ export default function App() {
     try {
       setRolleyLoading(true);
       setError("");
-      const query = new URLSearchParams({
+      const queueQuery = new URLSearchParams({
         pick_date: rolleyDate,
         sport: rolleySport,
       });
-      const res = await requestRolley(`/api/v1/admin/picks?${query.toString()}`, rolleyAdminKey);
-      setRolleyPicks(Array.isArray(res?.picks) ? res.picks : []);
+      const historyQuery = new URLSearchParams({
+        sport: rolleySport,
+        before_date: addDaysToDateToken(rolleyDate, -1),
+        limit: "20",
+      });
+      const [queueRes, historyRes] = await Promise.all([
+        requestRolley(`/api/v1/admin/picks?${queueQuery.toString()}`, rolleyAdminKey),
+        requestRolley(`/api/v1/admin/picks/history?${historyQuery.toString()}`, rolleyAdminKey),
+      ]);
+      setRolleyPicks(Array.isArray(queueRes?.picks) ? queueRes.picks : []);
+      setRolleyHistory(Array.isArray(historyRes?.picks) ? historyRes.picks : []);
     } catch (err: any) {
       setError(err?.message || "Failed to load Rolley picks");
       setRolleyPicks([]);
+      setRolleyHistory([]);
     } finally {
       setRolleyLoading(false);
     }
@@ -1224,6 +1242,80 @@ export default function App() {
                           <td>{(pick.confidence * 100).toFixed(2)}%</td>
                           <td>{pick.implied_odds ? `x${pick.implied_odds.toFixed(3)}` : "-"}</td>
                           <td>{pick.is_primary ? "Yes" : "No"}</td>
+                          <td>{pick.settlement_outcome || "PENDING"}</td>
+                          <td>{formatDateTime(pick.settled_at)}</td>
+                          <td>
+                            <div className="template-row">
+                              <button
+                                className="ghost"
+                                onClick={() => void settleRolleyPick(pick.id, "WIN")}
+                                disabled={rolleyLoading}
+                              >
+                                Mark WIN
+                              </button>
+                              <button
+                                className="ghost danger"
+                                onClick={() => void settleRolleyPick(pick.id, "LOSS")}
+                                disabled={rolleyLoading}
+                              >
+                                Mark LOSS
+                              </button>
+                              <button
+                                className="ghost"
+                                onClick={() => void settleRolleyPick(pick.id, "VOID")}
+                                disabled={rolleyLoading}
+                              >
+                                Mark VOID
+                              </button>
+                              <button
+                                className="ghost"
+                                onClick={() => void settleRolleyPick(pick.id, "PENDING")}
+                                disabled={rolleyLoading}
+                              >
+                                Reset
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            <section className="card table-card">
+              <h3>Recent Pick History</h3>
+              {!rolleyHistory.length ? (
+                <p className="muted">No older picks found before the selected date.</p>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Match</th>
+                        <th>Market</th>
+                        <th>Conf</th>
+                        <th>Status</th>
+                        <th>Settled At</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rolleyHistory.map((pick) => (
+                        <tr key={pick.id}>
+                          <td>{pick.date}</td>
+                          <td>
+                            <strong>
+                              {pick.home_team} vs {pick.away_team}
+                            </strong>
+                            <div className="muted">{pick.league}</div>
+                          </td>
+                          <td>
+                            {pick.market}: {pick.selection}
+                          </td>
+                          <td>{(pick.confidence * 100).toFixed(2)}%</td>
                           <td>{pick.settlement_outcome || "PENDING"}</td>
                           <td>{formatDateTime(pick.settled_at)}</td>
                           <td>
