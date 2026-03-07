@@ -5,6 +5,9 @@ const API_ORIGIN = API_BASE.replace(/\/api\/?$/, "");
 const MEDIA_BASE = (import.meta.env.VITE_MEDIA_BASE_URL || "https://media.sportbanter.online").replace(/\/+$/, "");
 const ROLLEY_BASE = (import.meta.env.VITE_ROLLEY_SERVICE_URL || "https://sportbanter.online/rolley").replace(/\/+$/, "");
 const ROLLEY_ADMIN_KEY_DEFAULT = import.meta.env.VITE_ROLLEY_ADMIN_KEY || "";
+const MOVEMENT_EXPLORER_BASE =
+  (import.meta.env.VITE_MOVEMENT_EXPLORER_BASE || "https://explorer.movementnetwork.xyz").replace(/\/+$/, "");
+const MOVEMENT_EXPLORER_NETWORK = import.meta.env.VITE_MOVEMENT_EXPLORER_NETWORK || "testnet";
 const TOKEN_KEY = "banter_admin_token";
 
 type AdminOverview = {
@@ -77,9 +80,14 @@ type RolleyAdminPick = {
   confidence: number;
   implied_odds?: number;
   is_primary?: boolean;
+  movement_pick_id?: number | null;
+  movement_tx_hash?: string | null;
+  movement_sync_status?: string | null;
   settlement_outcome?: RolleyOutcome;
   settlement_notes?: string | null;
+  settled_by?: string | null;
   settled_at?: string | null;
+  settlement_movement_tx_hash?: string | null;
   created_at: string;
 };
 
@@ -268,6 +276,11 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString();
 }
 
+function movementTxUrl(hash?: string | null) {
+  if (!hash) return "";
+  return `${MOVEMENT_EXPLORER_BASE}/txn/${hash}?network=${MOVEMENT_EXPLORER_NETWORK}`;
+}
+
 function addDaysToDateToken(dateToken: string, days: number) {
   const [y, m, d] = dateToken.split("-").map((part) => Number(part));
   const date = new Date(y, (m || 1) - 1, d || 1);
@@ -337,6 +350,7 @@ export default function App() {
   const [categories, setCategories] = useState<PcaCategory[]>([]);
   const [rolleyAdminKey, setRolleyAdminKey] = useState(ROLLEY_ADMIN_KEY_DEFAULT);
   const [rolleyDate, setRolleyDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [rolleyHistoryDate, setRolleyHistoryDate] = useState(() => addDaysToDateToken(new Date().toISOString().slice(0, 10), -1));
   const [rolleySport, setRolleySport] = useState<"SOCCER" | "BASKETBALL">("SOCCER");
   const [rolleyPicks, setRolleyPicks] = useState<RolleyAdminPick[]>([]);
   const [rolleyHistory, setRolleyHistory] = useState<RolleyAdminPick[]>([]);
@@ -434,7 +448,7 @@ export default function App() {
   useEffect(() => {
     if (!loggedIn || tab !== "rolley") return;
     void loadRolleyPicks();
-  }, [loggedIn, tab, rolleyDate, rolleySport]);
+  }, [loggedIn, tab, rolleyDate, rolleyHistoryDate, rolleySport]);
 
   async function loadAll() {
     try {
@@ -543,8 +557,8 @@ export default function App() {
       });
       const historyQuery = new URLSearchParams({
         sport: rolleySport,
-        before_date: addDaysToDateToken(rolleyDate, -1),
-        limit: "20",
+        pick_date: rolleyHistoryDate,
+        limit: "100",
       });
       const [queueRes, historyRes] = await Promise.all([
         requestRolley(`/api/v1/admin/picks?${queueQuery.toString()}`, rolleyAdminKey),
@@ -556,6 +570,28 @@ export default function App() {
       setError(err?.message || "Failed to load Rolley picks");
       setRolleyPicks([]);
       setRolleyHistory([]);
+    } finally {
+      setRolleyLoading(false);
+    }
+  }
+
+  async function rebuildRolleyPicks() {
+    try {
+      setRolleyLoading(true);
+      setError("");
+      const query = new URLSearchParams({
+        pick_date: rolleyDate,
+        sport: rolleySport,
+      });
+      await requestRolley(`/api/v1/admin/picks/rebuild?${query.toString()}`, rolleyAdminKey, {
+        method: "POST",
+      });
+      if (rolleyHistoryDate === rolleyDate) {
+        setRolleyHistoryDate(addDaysToDateToken(rolleyDate, -1));
+      }
+      await loadRolleyPicks();
+    } catch (err: any) {
+      setError(err?.message || "Failed to rebuild Rolley picks");
     } finally {
       setRolleyLoading(false);
     }
@@ -1210,12 +1246,18 @@ export default function App() {
           <>
             <section className="card">
               <h3>Daily Pick Settlement</h3>
-              <div className="toolbar" style={{ gridTemplateColumns: "220px 160px 1fr auto" }}>
+              <div className="toolbar" style={{ gridTemplateColumns: "220px 160px 220px 1fr auto auto" }}>
                 <input type="date" value={rolleyDate} onChange={(e) => setRolleyDate(e.target.value)} />
                 <select value={rolleySport} onChange={(e) => setRolleySport(e.target.value as "SOCCER" | "BASKETBALL")}>
                   <option value="SOCCER">SOCCER</option>
                   <option value="BASKETBALL">BASKETBALL</option>
                 </select>
+                <input
+                  type="date"
+                  value={rolleyHistoryDate}
+                  onChange={(e) => setRolleyHistoryDate(e.target.value)}
+                  title="History date"
+                />
                 <input
                   value={rolleyAdminKey}
                   onChange={(e) => setRolleyAdminKey(e.target.value)}
@@ -1223,6 +1265,9 @@ export default function App() {
                 />
                 <button className="ghost" onClick={() => void loadRolleyPicks()} disabled={rolleyLoading}>
                   {rolleyLoading ? "Loading..." : "Load Picks"}
+                </button>
+                <button className="ghost danger" onClick={() => void rebuildRolleyPicks()} disabled={rolleyLoading}>
+                  {rolleyLoading ? "Working..." : "Rebuild Day"}
                 </button>
               </div>
               <p className="muted" style={{ marginTop: 8 }}>
@@ -1245,7 +1290,9 @@ export default function App() {
                         <th>Odds</th>
                         <th>Primary</th>
                         <th>Status</th>
+                        <th>By</th>
                         <th>Settled At</th>
+                        <th>Chain</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
@@ -1265,7 +1312,28 @@ export default function App() {
                           <td>{pick.implied_odds ? `x${pick.implied_odds.toFixed(3)}` : "-"}</td>
                           <td>{pick.is_primary ? "Yes" : "No"}</td>
                           <td>{pick.settlement_outcome || "PENDING"}</td>
+                          <td>{displayText(pick.settled_by)}</td>
                           <td>{formatDateTime(pick.settled_at)}</td>
+                          <td>
+                            <div className="mini-stats">
+                              <span>ID: {displayText(pick.movement_pick_id)}</span>
+                              {pick.movement_tx_hash ? (
+                                <a href={movementTxUrl(pick.movement_tx_hash)} target="_blank" rel="noreferrer" className="link-btn">
+                                  Create Tx
+                                </a>
+                              ) : null}
+                              {pick.settlement_movement_tx_hash ? (
+                                <a
+                                  href={movementTxUrl(pick.settlement_movement_tx_hash)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="link-btn"
+                                >
+                                  Settle Tx
+                                </a>
+                              ) : null}
+                            </div>
+                          </td>
                           <td>
                             <div className="template-row">
                               <button
@@ -1307,9 +1375,9 @@ export default function App() {
             </section>
 
             <section className="card table-card">
-              <h3>Recent Pick History</h3>
+              <h3>Pick History</h3>
               {!rolleyHistory.length ? (
-                <p className="muted">No older picks found before the selected date.</p>
+                <p className="muted">No picks found for the selected history date.</p>
               ) : (
                 <div className="table-wrap">
                   <table>
@@ -1320,7 +1388,9 @@ export default function App() {
                         <th>Market</th>
                         <th>Conf</th>
                         <th>Status</th>
+                        <th>By</th>
                         <th>Settled At</th>
+                        <th>Chain</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
@@ -1339,7 +1409,28 @@ export default function App() {
                           </td>
                           <td>{(pick.confidence * 100).toFixed(2)}%</td>
                           <td>{pick.settlement_outcome || "PENDING"}</td>
+                          <td>{displayText(pick.settled_by)}</td>
                           <td>{formatDateTime(pick.settled_at)}</td>
+                          <td>
+                            <div className="mini-stats">
+                              <span>ID: {displayText(pick.movement_pick_id)}</span>
+                              {pick.movement_tx_hash ? (
+                                <a href={movementTxUrl(pick.movement_tx_hash)} target="_blank" rel="noreferrer" className="link-btn">
+                                  Create Tx
+                                </a>
+                              ) : null}
+                              {pick.settlement_movement_tx_hash ? (
+                                <a
+                                  href={movementTxUrl(pick.settlement_movement_tx_hash)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="link-btn"
+                                >
+                                  Settle Tx
+                                </a>
+                              ) : null}
+                            </div>
+                          </td>
                           <td>
                             <div className="template-row">
                               <button
