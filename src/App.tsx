@@ -132,6 +132,7 @@ type RolleyDailyProduct = {
   kind: "SINGLE" | "BASKET";
   combined_confidence: number;
   combined_odds: number;
+  manual_factor_override?: number | null;
   settled_factor?: number | null;
   status: string;
   outcome: RolleyOutcome;
@@ -145,6 +146,49 @@ type RolleyDailyProductsResponse = {
   date: string;
   sport: "SOCCER" | "BASKETBALL";
   products: RolleyDailyProduct[];
+};
+
+type RolleyStakeDailyResult = {
+  id: string;
+  daily_product_id?: string | null;
+  pick_id: string;
+  pick_date: string;
+  outcome: RolleyOutcome;
+  factor: number;
+  starting_rol: number;
+  ending_rol: number;
+  created_at: string;
+};
+
+type RolleyStakePosition = {
+  id: string;
+  user_id: string;
+  sport: "SOCCER" | "BASKETBALL";
+  principal_rol: number;
+  current_rol: number;
+  lock_days: number;
+  days_completed: number;
+  days_remaining: number;
+  starts_on: string;
+  ends_on: string;
+  status: "ACTIVE" | "LOST" | "MATURED" | "WITHDRAWN";
+  total_factor: number;
+  gross_profit_rol: number;
+  platform_fee_rol: number;
+  net_payout_rol: number;
+  latest_pick_date?: string | null;
+  latest_outcome?: RolleyOutcome | null;
+  matured_at?: string | null;
+  withdrawn_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  daily_results: RolleyStakeDailyResult[];
+};
+
+type RolleyAdminStakeListResponse = {
+  as_of_date: string;
+  status?: string | null;
+  stakes: RolleyStakePosition[];
 };
 
 const NAV_ITEMS: Array<{ id: AppTab; label: string }> = [
@@ -415,6 +459,8 @@ export default function App() {
   const [rolleyHistory, setRolleyHistory] = useState<RolleyAdminPick[]>([]);
   const [rolleySummary, setRolleySummary] = useState<RolleyRolloverSummary | null>(null);
   const [rolleyDailyProduct, setRolleyDailyProduct] = useState<RolleyDailyProduct | null>(null);
+  const [rolleyPositions, setRolleyPositions] = useState<RolleyStakePosition[]>([]);
+  const [dailyFactorInput, setDailyFactorInput] = useState("");
   const [rolleyLoading, setRolleyLoading] = useState(false);
 
   const [categoryForm, setCategoryForm] = useState({
@@ -491,6 +537,15 @@ export default function App() {
     if (tab === "rolley") return "Rolley Settlement";
     return "PCA Management";
   }, [tab]);
+
+  const rolleyActivePositions = useMemo(
+    () => rolleyPositions.filter((row) => row.status === "ACTIVE" && row.sport === rolleySport),
+    [rolleyPositions, rolleySport]
+  );
+  const rolleyMaturedPositions = useMemo(
+    () => rolleyPositions.filter((row) => row.status === "MATURED" && row.sport === rolleySport),
+    [rolleyPositions, rolleySport]
+  );
 
   const categoryOptions = useMemo(
     () =>
@@ -626,14 +681,26 @@ export default function App() {
         pick_date: rolleyHistoryDate,
         limit: "100",
       });
-      const [queueRes, historyRes, productRes] = await Promise.all([
+      const [queueRes, historyRes, productRes, positionsRes] = await Promise.all([
         requestRolley(`/api/v1/admin/picks?${queueQuery.toString()}`, rolleyAdminKey),
         requestRolley(`/api/v1/admin/picks/history?${historyQuery.toString()}`, rolleyAdminKey),
         requestRolley(`/api/v1/products/daily?${queueQuery.toString()}`, rolleyAdminKey),
+        requestRolley(`/api/v1/admin/rollover/positions?as_of_date=${encodeURIComponent(rolleyDate)}`, rolleyAdminKey),
       ]);
       setRolleyPicks(Array.isArray(queueRes?.picks) ? queueRes.picks : []);
       setRolleyHistory(Array.isArray(historyRes?.picks) ? historyRes.picks : []);
-      setRolleyDailyProduct(Array.isArray((productRes as RolleyDailyProductsResponse)?.products) ? productRes.products[0] ?? null : null);
+      const currentProduct = Array.isArray((productRes as RolleyDailyProductsResponse)?.products)
+        ? productRes.products[0] ?? null
+        : null;
+      setRolleyDailyProduct(currentProduct);
+      setDailyFactorInput(
+        currentProduct?.manual_factor_override != null
+          ? String(currentProduct.manual_factor_override)
+          : currentProduct?.combined_odds != null
+            ? currentProduct.combined_odds.toFixed(3)
+            : ""
+      );
+      setRolleyPositions(Array.isArray((positionsRes as RolleyAdminStakeListResponse)?.stakes) ? positionsRes.stakes : []);
       try {
         const summary = await requestRolley(
           `/api/v1/admin/rollover/summary?as_of_date=${encodeURIComponent(rolleyDate)}`,
@@ -649,6 +716,7 @@ export default function App() {
       setRolleyHistory([]);
       setRolleySummary(null);
       setRolleyDailyProduct(null);
+      setRolleyPositions([]);
     } finally {
       setRolleyLoading(false);
     }
@@ -690,6 +758,60 @@ export default function App() {
       await loadRolleyPicks();
     } catch (err: any) {
       setError(err?.message || "Failed to settle pick");
+    } finally {
+      setRolleyLoading(false);
+    }
+  }
+
+  async function saveDailyFactorOverride() {
+    if (!rolleyDailyProduct) return;
+    try {
+      setRolleyLoading(true);
+      setError("");
+      const trimmed = dailyFactorInput.trim();
+      const factorValue = trimmed ? Number(trimmed) : null;
+      if (trimmed && (factorValue == null || !Number.isFinite(factorValue) || factorValue < 1)) {
+        throw new Error("Daily factor must be at least 1.0");
+      }
+      await requestRolley(`/api/v1/admin/products/${rolleyDailyProduct.id}/factor`, rolleyAdminKey, {
+        method: "POST",
+        body: JSON.stringify({ factor: factorValue }),
+      });
+      await loadRolleyPicks();
+    } catch (err: any) {
+      setError(err?.message || "Failed to save daily factor");
+    } finally {
+      setRolleyLoading(false);
+    }
+  }
+
+  async function payoutRolleyStake(stakeId: string) {
+    try {
+      setRolleyLoading(true);
+      setError("");
+      await requestRolley(`/api/v1/admin/rollover/positions/${stakeId}/payout`, rolleyAdminKey, {
+        method: "POST",
+      });
+      await loadRolleyPicks();
+    } catch (err: any) {
+      setError(err?.message || "Failed to mark payout");
+    } finally {
+      setRolleyLoading(false);
+    }
+  }
+
+  async function clearDailyFactorOverride() {
+    if (!rolleyDailyProduct) return;
+    try {
+      setRolleyLoading(true);
+      setError("");
+      await requestRolley(`/api/v1/admin/products/${rolleyDailyProduct.id}/factor`, rolleyAdminKey, {
+        method: "POST",
+        body: JSON.stringify({ factor: null }),
+      });
+      await loadRolleyPicks();
+    } catch (err: any) {
+      setError(err?.message || "Failed to clear daily factor");
     } finally {
       setRolleyLoading(false);
     }
@@ -1431,7 +1553,7 @@ export default function App() {
                     <div className="muted">Combined Confidence</div>
                   </div>
                   <div>
-                    <strong>x{rolleyDailyProduct.combined_odds.toFixed(3)}</strong>
+                    <strong>x{(rolleyDailyProduct.manual_factor_override ?? rolleyDailyProduct.combined_odds).toFixed(3)}</strong>
                     <div className="muted">Daily Factor</div>
                   </div>
                   <div>
@@ -1439,6 +1561,35 @@ export default function App() {
                     <div className="muted">Current Outcome</div>
                   </div>
                 </div>
+                <div className="template-row" style={{ marginTop: 12, alignItems: "end" }}>
+                  <label style={{ display: "grid", gap: 6 }}>
+                    <span className="muted">Actual bookmaker factor</span>
+                    <input
+                      value={dailyFactorInput}
+                      onChange={(e) => setDailyFactorInput(e.target.value)}
+                      placeholder="e.g. 1.090"
+                      inputMode="decimal"
+                    />
+                  </label>
+                  <button className="ghost" onClick={() => void saveDailyFactorOverride()} disabled={rolleyLoading}>
+                    Save Factor
+                  </button>
+                  <button
+                    className="ghost"
+                    onClick={() => {
+                      setDailyFactorInput("");
+                      void clearDailyFactorOverride();
+                    }}
+                    disabled={rolleyLoading}
+                  >
+                    Clear Override
+                  </button>
+                </div>
+                {rolleyDailyProduct.manual_factor_override != null ? (
+                  <p className="muted" style={{ marginTop: 8 }}>
+                    Manual factor override is active. This value will be used for rollover math instead of the internal factor.
+                  </p>
+                ) : null}
                 <p className="muted" style={{ marginTop: 10 }}>{displayText(rolleyDailyProduct.rationale)}</p>
                 <div className="table-wrap" style={{ marginTop: 12 }}>
                   <table>
@@ -1472,6 +1623,91 @@ export default function App() {
                 </div>
               </section>
             ) : null}
+
+            <section className="card table-card">
+              <h3>Active Rollover Positions</h3>
+              {!rolleyActivePositions.length ? (
+                <p className="muted">No active positions for the selected sport.</p>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Stake</th>
+                        <th>Current</th>
+                        <th>Days</th>
+                        <th>Latest</th>
+                        <th>Ends</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rolleyActivePositions.map((row) => (
+                        <tr key={row.id}>
+                          <td>
+                            <strong>{row.user_id}</strong>
+                            <div className="muted">{row.id}</div>
+                          </td>
+                          <td>{row.principal_rol.toFixed(4)} ROL</td>
+                          <td>{row.current_rol.toFixed(4)} ROL</td>
+                          <td>
+                            {row.days_completed}/{row.lock_days}
+                            <div className="muted">{row.days_remaining} remaining</div>
+                          </td>
+                          <td>{displayText(row.latest_outcome)}</td>
+                          <td>{row.ends_on}</td>
+                          <td>{row.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            <section className="card table-card">
+              <h3>Matured Payout Queue</h3>
+              {!rolleyMaturedPositions.length ? (
+                <p className="muted">No matured positions awaiting payout for the selected sport.</p>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Current</th>
+                        <th>Profit</th>
+                        <th>Fee</th>
+                        <th>Net Payout</th>
+                        <th>Matured</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rolleyMaturedPositions.map((row) => (
+                        <tr key={row.id}>
+                          <td>
+                            <strong>{row.user_id}</strong>
+                            <div className="muted">{row.id}</div>
+                          </td>
+                          <td>{row.current_rol.toFixed(4)} ROL</td>
+                          <td>{row.gross_profit_rol.toFixed(4)} ROL</td>
+                          <td>{row.platform_fee_rol.toFixed(4)} ROL</td>
+                          <td>{row.net_payout_rol.toFixed(4)} ROL</td>
+                          <td>{formatDateTime(row.matured_at)}</td>
+                          <td>
+                            <button className="ghost" onClick={() => void payoutRolleyStake(row.id)} disabled={rolleyLoading}>
+                              Mark Paid Out
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
 
             <section className="card table-card">
               <h3>Settlement Queue</h3>
