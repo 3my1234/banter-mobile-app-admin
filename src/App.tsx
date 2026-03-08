@@ -98,20 +98,21 @@ type RolleyRolloverSportSummary = {
   lost_positions: number;
   matured_positions: number;
   withdrawn_positions: number;
-  active_principal_rol: number;
-  active_current_rol: number;
-  matured_payout_rol: number;
-  accrued_platform_fee_rol: number;
+  active_principal_amount: number;
+  active_current_amount: number;
+  matured_payout_amount: number;
+  accrued_platform_fee_amount: number;
 };
 
 type RolleyRolloverSummary = {
   as_of_date: string;
+  stake_asset: "USD" | "USDC" | "ROL";
   active_positions: number;
   active_users: number;
-  active_principal_rol: number;
-  active_current_rol: number;
-  matured_payout_rol: number;
-  accrued_platform_fee_rol: number;
+  active_principal_amount: number;
+  active_current_amount: number;
+  matured_payout_amount: number;
+  accrued_platform_fee_amount: number;
   by_sport: RolleyRolloverSportSummary[];
 };
 
@@ -155,8 +156,8 @@ type RolleyStakeDailyResult = {
   pick_date: string;
   outcome: RolleyOutcome;
   factor: number;
-  starting_rol: number;
-  ending_rol: number;
+  starting_amount: number;
+  ending_amount: number;
   created_at: string;
 };
 
@@ -164,8 +165,9 @@ type RolleyStakePosition = {
   id: string;
   user_id: string;
   sport: "SOCCER" | "BASKETBALL";
-  principal_rol: number;
-  current_rol: number;
+  stake_asset: "USD" | "USDC" | "ROL";
+  principal_amount: number;
+  current_amount: number;
   lock_days: number;
   days_completed: number;
   days_remaining: number;
@@ -173,9 +175,9 @@ type RolleyStakePosition = {
   ends_on: string;
   status: "ACTIVE" | "LOST" | "MATURED" | "WITHDRAWN";
   total_factor: number;
-  gross_profit_rol: number;
-  platform_fee_rol: number;
-  net_payout_rol: number;
+  gross_profit_amount: number;
+  platform_fee_amount: number;
+  net_payout_amount: number;
   latest_pick_date?: string | null;
   latest_outcome?: RolleyOutcome | null;
   matured_at?: string | null;
@@ -187,6 +189,7 @@ type RolleyStakePosition = {
 
 type RolleyAdminStakeListResponse = {
   as_of_date: string;
+  stake_asset: "USD" | "USDC" | "ROL";
   status?: string | null;
   stakes: RolleyStakePosition[];
 };
@@ -268,6 +271,15 @@ function formatRol(raw: string | number | bigint | undefined) {
   const value = Number(raw || 0);
   if (!Number.isFinite(value)) return "0";
   return (value / 1e8).toLocaleString(undefined, { maximumFractionDigits: 8 });
+}
+
+function formatStakeAmount(amount: number, asset: "USD" | "USDC" | "ROL") {
+  const digits = asset === "USD" ? 2 : asset === "USDC" ? 6 : 8;
+  const formatted = Number(amount || 0).toLocaleString(undefined, {
+    minimumFractionDigits: asset === "USD" ? 2 : 0,
+    maximumFractionDigits: digits,
+  });
+  return `${formatted} ${asset}`;
 }
 
 function jsonText(value: unknown) {
@@ -455,6 +467,7 @@ export default function App() {
   const [rolleyDate, setRolleyDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [rolleyHistoryDate, setRolleyHistoryDate] = useState(() => addDaysToDateToken(new Date().toISOString().slice(0, 10), -1));
   const [rolleySport, setRolleySport] = useState<"SOCCER" | "BASKETBALL">("SOCCER");
+  const [rolleyAsset, setRolleyAsset] = useState<"USD" | "USDC" | "ROL">("USD");
   const [rolleyPicks, setRolleyPicks] = useState<RolleyAdminPick[]>([]);
   const [rolleyHistory, setRolleyHistory] = useState<RolleyAdminPick[]>([]);
   const [rolleySummary, setRolleySummary] = useState<RolleyRolloverSummary | null>(null);
@@ -565,7 +578,7 @@ export default function App() {
   useEffect(() => {
     if (!loggedIn || tab !== "rolley") return;
     void loadRolleyPicks();
-  }, [loggedIn, tab, rolleyDate, rolleyHistoryDate, rolleySport]);
+  }, [loggedIn, tab, rolleyDate, rolleyHistoryDate, rolleySport, rolleyAsset]);
 
   useEffect(() => {
     localStorage.setItem(TAB_KEY, tab);
@@ -683,11 +696,15 @@ export default function App() {
         pick_date: rolleyHistoryDate,
         limit: "100",
       });
+      const rolloverQuery = new URLSearchParams({
+        as_of_date: rolleyDate,
+        stake_asset: rolleyAsset,
+      });
       const [queueRes, historyRes, productRes, positionsRes] = await Promise.all([
         requestRolley(`/api/v1/admin/picks?${queueQuery.toString()}`, rolleyAdminKey),
         requestRolley(`/api/v1/admin/picks/history?${historyQuery.toString()}`, rolleyAdminKey),
         requestRolley(`/api/v1/products/daily?${queueQuery.toString()}`, rolleyAdminKey),
-        requestRolley(`/api/v1/admin/rollover/positions?as_of_date=${encodeURIComponent(rolleyDate)}`, rolleyAdminKey),
+        requestRolley(`/api/v1/admin/rollover/positions?${rolloverQuery.toString()}`, rolleyAdminKey),
       ]);
       setRolleyPicks(Array.isArray(queueRes?.picks) ? queueRes.picks : []);
       setRolleyHistory(Array.isArray(historyRes?.picks) ? historyRes.picks : []);
@@ -705,7 +722,7 @@ export default function App() {
       setRolleyPositions(Array.isArray((positionsRes as RolleyAdminStakeListResponse)?.stakes) ? positionsRes.stakes : []);
       try {
         const summary = await requestRolley(
-          `/api/v1/admin/rollover/summary?as_of_date=${encodeURIComponent(rolleyDate)}`,
+          `/api/v1/admin/rollover/summary?${rolloverQuery.toString()}`,
           rolleyAdminKey
         );
         setRolleySummary(summary || null);
@@ -1465,11 +1482,16 @@ export default function App() {
           <>
             <section className="card">
               <h3>Daily Pick Settlement</h3>
-              <div className="toolbar" style={{ gridTemplateColumns: "220px 160px 220px 1fr auto auto" }}>
+              <div className="toolbar" style={{ gridTemplateColumns: "220px 160px 140px 220px 1fr auto auto" }}>
                 <input type="date" value={rolleyDate} onChange={(e) => setRolleyDate(e.target.value)} />
                 <select value={rolleySport} onChange={(e) => setRolleySport(e.target.value as "SOCCER" | "BASKETBALL")}>
                   <option value="SOCCER">SOCCER</option>
                   <option value="BASKETBALL">BASKETBALL</option>
+                </select>
+                <select value={rolleyAsset} onChange={(e) => setRolleyAsset(e.target.value as "USD" | "USDC" | "ROL")}>
+                  <option value="USD">USD</option>
+                  <option value="USDC">USDC</option>
+                  <option value="ROL">ROL</option>
                 </select>
                 <input
                   type="date"
@@ -1507,19 +1529,19 @@ export default function App() {
                     <div className="muted">Active Users</div>
                   </div>
                   <div>
-                    <strong>{rolleySummary.active_principal_rol.toFixed(4)} ROL</strong>
+                    <strong>{formatStakeAmount(rolleySummary.active_principal_amount, rolleySummary.stake_asset)}</strong>
                     <div className="muted">Active Principal</div>
                   </div>
                   <div>
-                    <strong>{rolleySummary.active_current_rol.toFixed(4)} ROL</strong>
+                    <strong>{formatStakeAmount(rolleySummary.active_current_amount, rolleySummary.stake_asset)}</strong>
                     <div className="muted">Current Exposure</div>
                   </div>
                   <div>
-                    <strong>{rolleySummary.matured_payout_rol.toFixed(4)} ROL</strong>
+                    <strong>{formatStakeAmount(rolleySummary.matured_payout_amount, rolleySummary.stake_asset)}</strong>
                     <div className="muted">Matured Payouts</div>
                   </div>
                   <div>
-                    <strong>{rolleySummary.accrued_platform_fee_rol.toFixed(4)} ROL</strong>
+                    <strong>{formatStakeAmount(rolleySummary.accrued_platform_fee_amount, rolleySummary.stake_asset)}</strong>
                     <div className="muted">Accrued Banter Fee</div>
                   </div>
                 </div>
@@ -1546,10 +1568,10 @@ export default function App() {
                           <td>{row.lost_positions}</td>
                           <td>{row.matured_positions}</td>
                           <td>{row.withdrawn_positions}</td>
-                          <td>{row.active_principal_rol.toFixed(4)} ROL</td>
-                          <td>{row.active_current_rol.toFixed(4)} ROL</td>
-                          <td>{row.matured_payout_rol.toFixed(4)} ROL</td>
-                          <td>{row.accrued_platform_fee_rol.toFixed(4)} ROL</td>
+                          <td>{formatStakeAmount(row.active_principal_amount, rolleySummary.stake_asset)}</td>
+                          <td>{formatStakeAmount(row.active_current_amount, rolleySummary.stake_asset)}</td>
+                          <td>{formatStakeAmount(row.matured_payout_amount, rolleySummary.stake_asset)}</td>
+                          <td>{formatStakeAmount(row.accrued_platform_fee_amount, rolleySummary.stake_asset)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1667,8 +1689,8 @@ export default function App() {
                             <strong>{row.user_id}</strong>
                             <div className="muted">{row.id}</div>
                           </td>
-                          <td>{row.principal_rol.toFixed(4)} ROL</td>
-                          <td>{row.current_rol.toFixed(4)} ROL</td>
+                          <td>{formatStakeAmount(row.principal_amount, row.stake_asset)}</td>
+                          <td>{formatStakeAmount(row.current_amount, row.stake_asset)}</td>
                           <td>
                             {row.days_completed}/{row.lock_days}
                             <div className="muted">{row.days_remaining} remaining</div>
@@ -1709,10 +1731,10 @@ export default function App() {
                             <strong>{row.user_id}</strong>
                             <div className="muted">{row.id}</div>
                           </td>
-                          <td>{row.current_rol.toFixed(4)} ROL</td>
-                          <td>{row.gross_profit_rol.toFixed(4)} ROL</td>
-                          <td>{row.platform_fee_rol.toFixed(4)} ROL</td>
-                          <td>{row.net_payout_rol.toFixed(4)} ROL</td>
+                          <td>{formatStakeAmount(row.current_amount, row.stake_asset)}</td>
+                          <td>{formatStakeAmount(row.gross_profit_amount, row.stake_asset)}</td>
+                          <td>{formatStakeAmount(row.platform_fee_amount, row.stake_asset)}</td>
+                          <td>{formatStakeAmount(row.net_payout_amount, row.stake_asset)}</td>
                           <td>{formatDateTime(row.matured_at)}</td>
                           <td>
                             <button className="ghost" onClick={() => void payoutRolleyStake(row.id)} disabled={rolleyLoading}>
