@@ -91,6 +91,29 @@ type RolleyAdminPick = {
   created_at: string;
 };
 
+type RolleyRolloverSportSummary = {
+  sport: "SOCCER" | "BASKETBALL";
+  active_positions: number;
+  lost_positions: number;
+  matured_positions: number;
+  withdrawn_positions: number;
+  active_principal_rol: number;
+  active_current_rol: number;
+  matured_payout_rol: number;
+  accrued_platform_fee_rol: number;
+};
+
+type RolleyRolloverSummary = {
+  as_of_date: string;
+  active_positions: number;
+  active_users: number;
+  active_principal_rol: number;
+  active_current_rol: number;
+  matured_payout_rol: number;
+  accrued_platform_fee_rol: number;
+  by_sport: RolleyRolloverSportSummary[];
+};
+
 const NAV_ITEMS: Array<{ id: AppTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "users", label: "Users" },
@@ -354,6 +377,7 @@ export default function App() {
   const [rolleySport, setRolleySport] = useState<"SOCCER" | "BASKETBALL">("SOCCER");
   const [rolleyPicks, setRolleyPicks] = useState<RolleyAdminPick[]>([]);
   const [rolleyHistory, setRolleyHistory] = useState<RolleyAdminPick[]>([]);
+  const [rolleySummary, setRolleySummary] = useState<RolleyRolloverSummary | null>(null);
   const [rolleyLoading, setRolleyLoading] = useState(false);
 
   const [categoryForm, setCategoryForm] = useState({
@@ -566,10 +590,20 @@ export default function App() {
       ]);
       setRolleyPicks(Array.isArray(queueRes?.picks) ? queueRes.picks : []);
       setRolleyHistory(Array.isArray(historyRes?.picks) ? historyRes.picks : []);
+      try {
+        const summary = await requestRolley(
+          `/api/v1/admin/rollover/summary?as_of_date=${encodeURIComponent(rolleyDate)}`,
+          rolleyAdminKey
+        );
+        setRolleySummary(summary || null);
+      } catch {
+        setRolleySummary(null);
+      }
     } catch (err: any) {
       setError(err?.message || "Failed to load Rolley picks");
       setRolleyPicks([]);
       setRolleyHistory([]);
+      setRolleySummary(null);
     } finally {
       setRolleyLoading(false);
     }
@@ -1274,6 +1308,70 @@ export default function App() {
                 Service: {ROLLEY_BASE}
               </p>
             </section>
+
+            {rolleySummary ? (
+              <section className="card">
+                <h3>Rollover Summary</h3>
+                <div className="mini-stats" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
+                  <div>
+                    <strong>{rolleySummary.active_positions}</strong>
+                    <div className="muted">Active Positions</div>
+                  </div>
+                  <div>
+                    <strong>{rolleySummary.active_users}</strong>
+                    <div className="muted">Active Users</div>
+                  </div>
+                  <div>
+                    <strong>{rolleySummary.active_principal_rol.toFixed(4)} ROL</strong>
+                    <div className="muted">Active Principal</div>
+                  </div>
+                  <div>
+                    <strong>{rolleySummary.active_current_rol.toFixed(4)} ROL</strong>
+                    <div className="muted">Current Exposure</div>
+                  </div>
+                  <div>
+                    <strong>{rolleySummary.matured_payout_rol.toFixed(4)} ROL</strong>
+                    <div className="muted">Matured Payouts</div>
+                  </div>
+                  <div>
+                    <strong>{rolleySummary.accrued_platform_fee_rol.toFixed(4)} ROL</strong>
+                    <div className="muted">Accrued Banter Fee</div>
+                  </div>
+                </div>
+                <div className="table-wrap" style={{ marginTop: 12 }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Sport</th>
+                        <th>Active</th>
+                        <th>Lost</th>
+                        <th>Matured</th>
+                        <th>Withdrawn</th>
+                        <th>Principal</th>
+                        <th>Exposure</th>
+                        <th>Payouts</th>
+                        <th>Fee</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rolleySummary.by_sport.map((row) => (
+                        <tr key={row.sport}>
+                          <td>{row.sport}</td>
+                          <td>{row.active_positions}</td>
+                          <td>{row.lost_positions}</td>
+                          <td>{row.matured_positions}</td>
+                          <td>{row.withdrawn_positions}</td>
+                          <td>{row.active_principal_rol.toFixed(4)} ROL</td>
+                          <td>{row.active_current_rol.toFixed(4)} ROL</td>
+                          <td>{row.matured_payout_rol.toFixed(4)} ROL</td>
+                          <td>{row.accrued_platform_fee_rol.toFixed(4)} ROL</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ) : null}
 
             <section className="card table-card">
               <h3>Settlement Queue</h3>
