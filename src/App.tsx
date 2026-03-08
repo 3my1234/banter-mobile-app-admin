@@ -114,6 +114,38 @@ type RolleyRolloverSummary = {
   by_sport: RolleyRolloverSportSummary[];
 };
 
+type RolleyDailyProductLeg = {
+  pick_id: string;
+  leg_index: number;
+  is_primary: boolean;
+  market: string;
+  selection: string;
+  confidence: number;
+  implied_odds: number;
+};
+
+type RolleyDailyProduct = {
+  id: string;
+  product_date: string;
+  sport: "SOCCER" | "BASKETBALL";
+  kind: "SINGLE" | "BASKET";
+  combined_confidence: number;
+  combined_odds: number;
+  settled_factor?: number | null;
+  status: string;
+  outcome: RolleyOutcome;
+  rationale: string;
+  settled_at?: string | null;
+  created_at: string;
+  legs: RolleyDailyProductLeg[];
+};
+
+type RolleyDailyProductsResponse = {
+  date: string;
+  sport: "SOCCER" | "BASKETBALL";
+  products: RolleyDailyProduct[];
+};
+
 const NAV_ITEMS: Array<{ id: AppTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "users", label: "Users" },
@@ -378,6 +410,7 @@ export default function App() {
   const [rolleyPicks, setRolleyPicks] = useState<RolleyAdminPick[]>([]);
   const [rolleyHistory, setRolleyHistory] = useState<RolleyAdminPick[]>([]);
   const [rolleySummary, setRolleySummary] = useState<RolleyRolloverSummary | null>(null);
+  const [rolleyDailyProduct, setRolleyDailyProduct] = useState<RolleyDailyProduct | null>(null);
   const [rolleyLoading, setRolleyLoading] = useState(false);
 
   const [categoryForm, setCategoryForm] = useState({
@@ -584,12 +617,14 @@ export default function App() {
         pick_date: rolleyHistoryDate,
         limit: "100",
       });
-      const [queueRes, historyRes] = await Promise.all([
+      const [queueRes, historyRes, productRes] = await Promise.all([
         requestRolley(`/api/v1/admin/picks?${queueQuery.toString()}`, rolleyAdminKey),
         requestRolley(`/api/v1/admin/picks/history?${historyQuery.toString()}`, rolleyAdminKey),
+        requestRolley(`/api/v1/products/daily?${queueQuery.toString()}`, rolleyAdminKey),
       ]);
       setRolleyPicks(Array.isArray(queueRes?.picks) ? queueRes.picks : []);
       setRolleyHistory(Array.isArray(historyRes?.picks) ? historyRes.picks : []);
+      setRolleyDailyProduct(Array.isArray((productRes as RolleyDailyProductsResponse)?.products) ? productRes.products[0] ?? null : null);
       try {
         const summary = await requestRolley(
           `/api/v1/admin/rollover/summary?as_of_date=${encodeURIComponent(rolleyDate)}`,
@@ -604,6 +639,7 @@ export default function App() {
       setRolleyPicks([]);
       setRolleyHistory([]);
       setRolleySummary(null);
+      setRolleyDailyProduct(null);
     } finally {
       setRolleyLoading(false);
     }
@@ -1373,8 +1409,64 @@ export default function App() {
               </section>
             ) : null}
 
+            {rolleyDailyProduct ? (
+              <section className="card">
+                <h3>Today's Rollover Product</h3>
+                <div className="mini-stats" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
+                  <div>
+                    <strong>{rolleyDailyProduct.kind}</strong>
+                    <div className="muted">Product Type</div>
+                  </div>
+                  <div>
+                    <strong>{(rolleyDailyProduct.combined_confidence * 100).toFixed(2)}%</strong>
+                    <div className="muted">Combined Confidence</div>
+                  </div>
+                  <div>
+                    <strong>x{rolleyDailyProduct.combined_odds.toFixed(3)}</strong>
+                    <div className="muted">Daily Factor</div>
+                  </div>
+                  <div>
+                    <strong>{rolleyDailyProduct.outcome}</strong>
+                    <div className="muted">Current Outcome</div>
+                  </div>
+                </div>
+                <p className="muted" style={{ marginTop: 10 }}>{displayText(rolleyDailyProduct.rationale)}</p>
+                <div className="table-wrap" style={{ marginTop: 12 }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Leg</th>
+                        <th>Market</th>
+                        <th>Selection</th>
+                        <th>Conf</th>
+                        <th>Factor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rolleyDailyProduct.legs.map((leg) => {
+                        const pick = rolleyPicks.find((item) => item.id === leg.pick_id) || rolleyHistory.find((item) => item.id === leg.pick_id);
+                        return (
+                          <tr key={leg.pick_id}>
+                            <td>
+                              <strong>{pick ? `${pick.home_team} vs ${pick.away_team}` : `Leg ${leg.leg_index + 1}`}</strong>
+                              <div className="muted">{pick?.league || `Product leg #${leg.leg_index + 1}`}</div>
+                            </td>
+                            <td>{leg.market}</td>
+                            <td>{leg.selection}</td>
+                            <td>{(leg.confidence * 100).toFixed(2)}%</td>
+                            <td>x{leg.implied_odds.toFixed(3)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ) : null}
+
             <section className="card table-card">
               <h3>Settlement Queue</h3>
+              <p className="muted">These are today&apos;s reasoned candidate picks. The rollover product above is the final managed selection.</p>
               {!rolleyPicks.length ? (
                 <p className="muted">No picks found for selected day/sport.</p>
               ) : (
