@@ -9,6 +9,7 @@ const MOVEMENT_EXPLORER_BASE =
   (import.meta.env.VITE_MOVEMENT_EXPLORER_BASE || "https://explorer.movementnetwork.xyz").replace(/\/+$/, "");
 const MOVEMENT_EXPLORER_NETWORK = import.meta.env.VITE_MOVEMENT_EXPLORER_NETWORK || "testnet";
 const TOKEN_KEY = "banter_admin_token";
+const TAB_KEY = "banter_admin_tab";
 
 type AdminOverview = {
   users: number;
@@ -391,7 +392,10 @@ function resolveNomineeMediaUrl(url?: string | null) {
 
 export default function App() {
   const [token, setToken] = useState<string>(() => localStorage.getItem(TOKEN_KEY) || "");
-  const [tab, setTab] = useState<AppTab>("overview");
+  const [tab, setTab] = useState<AppTab>(() => {
+    const saved = localStorage.getItem(TAB_KEY);
+    return saved === "overview" || saved === "users" || saved === "pca" || saved === "rolley" ? saved : "overview";
+  });
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -507,6 +511,10 @@ export default function App() {
     void loadRolleyPicks();
   }, [loggedIn, tab, rolleyDate, rolleyHistoryDate, rolleySport]);
 
+  useEffect(() => {
+    localStorage.setItem(TAB_KEY, tab);
+  }, [tab]);
+
   async function loadAll() {
     try {
       setBusy(true);
@@ -565,6 +573,7 @@ export default function App() {
   function logout() {
     localStorage.removeItem(TOKEN_KEY);
     setToken("");
+    localStorage.removeItem(TAB_KEY);
     setOverview(null);
     setUsers([]);
     setSelectedUser(null);
