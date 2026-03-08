@@ -462,6 +462,7 @@ export default function App() {
   const [rolleyPositions, setRolleyPositions] = useState<RolleyStakePosition[]>([]);
   const [dailyFactorInput, setDailyFactorInput] = useState("");
   const [rolleyLoading, setRolleyLoading] = useState(false);
+  const [rolleyAction, setRolleyAction] = useState<string | null>(null);
 
   const [categoryForm, setCategoryForm] = useState({
     sport: "SOCCER",
@@ -671,6 +672,7 @@ export default function App() {
   async function loadRolleyPicks() {
     try {
       setRolleyLoading(true);
+      setRolleyAction((prev) => prev ?? "load");
       setError("");
       const queueQuery = new URLSearchParams({
         pick_date: rolleyDate,
@@ -719,12 +721,14 @@ export default function App() {
       setRolleyPositions([]);
     } finally {
       setRolleyLoading(false);
+      setRolleyAction((prev) => (prev === "load" ? null : prev));
     }
   }
 
   async function rebuildRolleyPicks() {
     try {
       setRolleyLoading(true);
+      setRolleyAction("rebuild");
       setError("");
       const query = new URLSearchParams({
         pick_date: rolleyDate,
@@ -741,12 +745,14 @@ export default function App() {
       setError(err?.message || "Failed to rebuild Rolley picks");
     } finally {
       setRolleyLoading(false);
+      setRolleyAction(null);
     }
   }
 
   async function settleRolleyPick(pickId: string, outcome: RolleyOutcome) {
     try {
       setRolleyLoading(true);
+      setRolleyAction(`settle:${pickId}:${outcome}`);
       setError("");
       await requestRolley(`/api/v1/admin/picks/${pickId}/settle`, rolleyAdminKey, {
         method: "POST",
@@ -760,6 +766,7 @@ export default function App() {
       setError(err?.message || "Failed to settle pick");
     } finally {
       setRolleyLoading(false);
+      setRolleyAction(null);
     }
   }
 
@@ -767,6 +774,7 @@ export default function App() {
     if (!rolleyDailyProduct) return;
     try {
       setRolleyLoading(true);
+      setRolleyAction("factor-save");
       setError("");
       const trimmed = dailyFactorInput.trim();
       const factorValue = trimmed ? Number(trimmed) : null;
@@ -782,12 +790,14 @@ export default function App() {
       setError(err?.message || "Failed to save daily factor");
     } finally {
       setRolleyLoading(false);
+      setRolleyAction(null);
     }
   }
 
   async function payoutRolleyStake(stakeId: string) {
     try {
       setRolleyLoading(true);
+      setRolleyAction(`payout:${stakeId}`);
       setError("");
       await requestRolley(`/api/v1/admin/rollover/positions/${stakeId}/payout`, rolleyAdminKey, {
         method: "POST",
@@ -797,6 +807,7 @@ export default function App() {
       setError(err?.message || "Failed to mark payout");
     } finally {
       setRolleyLoading(false);
+      setRolleyAction(null);
     }
   }
 
@@ -804,6 +815,7 @@ export default function App() {
     if (!rolleyDailyProduct) return;
     try {
       setRolleyLoading(true);
+      setRolleyAction("factor-clear");
       setError("");
       await requestRolley(`/api/v1/admin/products/${rolleyDailyProduct.id}/factor`, rolleyAdminKey, {
         method: "POST",
@@ -814,13 +826,19 @@ export default function App() {
       setError(err?.message || "Failed to clear daily factor");
     } finally {
       setRolleyLoading(false);
+      setRolleyAction(null);
     }
   }
 
   async function handleRefresh() {
     if (tab === "rolley") {
-      await loadRolleyPicks();
-      return;
+      try {
+        setRolleyAction("refresh");
+        await loadRolleyPicks();
+        return;
+      } finally {
+        setRolleyAction(null);
+      }
     }
     await loadAll();
   }
@@ -1222,7 +1240,7 @@ export default function App() {
             <p>Monitor app activity and configure award campaigns.</p>
           </div>
           <button onClick={() => void handleRefresh()} disabled={busy || rolleyLoading}>
-            {busy || rolleyLoading ? "Refreshing..." : "Refresh"}
+            {busy || rolleyAction === "refresh" ? "Refreshing..." : "Refresh"}
           </button>
         </header>
 
@@ -1465,10 +1483,10 @@ export default function App() {
                   placeholder="Rolley admin key (X-Admin-Key)"
                 />
                 <button className="ghost" onClick={() => void loadRolleyPicks()} disabled={rolleyLoading}>
-                  {rolleyLoading ? "Loading..." : "Load Picks"}
+                  {rolleyAction === "load" ? "Loading..." : "Load Picks"}
                 </button>
                 <button className="ghost danger" onClick={() => void rebuildRolleyPicks()} disabled={rolleyLoading}>
-                  {rolleyLoading ? "Working..." : "Rebuild Day"}
+                  {rolleyAction === "rebuild" ? "Working..." : "Rebuild Day"}
                 </button>
               </div>
               <p className="muted" style={{ marginTop: 8 }}>
@@ -1572,7 +1590,7 @@ export default function App() {
                     />
                   </label>
                   <button className="ghost" onClick={() => void saveDailyFactorOverride()} disabled={rolleyLoading}>
-                    Save Factor
+                    {rolleyAction === "factor-save" ? "Saving..." : "Save Factor"}
                   </button>
                   <button
                     className="ghost"
@@ -1582,7 +1600,7 @@ export default function App() {
                     }}
                     disabled={rolleyLoading}
                   >
-                    Clear Override
+                    {rolleyAction === "factor-clear" ? "Clearing..." : "Clear Override"}
                   </button>
                 </div>
                 {rolleyDailyProduct.manual_factor_override != null ? (
@@ -1698,7 +1716,7 @@ export default function App() {
                           <td>{formatDateTime(row.matured_at)}</td>
                           <td>
                             <button className="ghost" onClick={() => void payoutRolleyStake(row.id)} disabled={rolleyLoading}>
-                              Mark Paid Out
+                              {rolleyAction === `payout:${row.id}` ? "Paying..." : "Mark Paid Out"}
                             </button>
                           </td>
                         </tr>
@@ -1776,28 +1794,28 @@ export default function App() {
                                 onClick={() => void settleRolleyPick(pick.id, "WIN")}
                                 disabled={rolleyLoading}
                               >
-                                Mark WIN
+                                {rolleyAction === `settle:${pick.id}:WIN` ? "Saving..." : "Mark WIN"}
                               </button>
                               <button
                                 className="ghost danger"
                                 onClick={() => void settleRolleyPick(pick.id, "LOSS")}
                                 disabled={rolleyLoading}
                               >
-                                Mark LOSS
+                                {rolleyAction === `settle:${pick.id}:LOSS` ? "Saving..." : "Mark LOSS"}
                               </button>
                               <button
                                 className="ghost"
                                 onClick={() => void settleRolleyPick(pick.id, "VOID")}
                                 disabled={rolleyLoading}
                               >
-                                Mark VOID
+                                {rolleyAction === `settle:${pick.id}:VOID` ? "Saving..." : "Mark VOID"}
                               </button>
                               <button
                                 className="ghost"
                                 onClick={() => void settleRolleyPick(pick.id, "PENDING")}
                                 disabled={rolleyLoading}
                               >
-                                Reset
+                                {rolleyAction === `settle:${pick.id}:PENDING` ? "Saving..." : "Reset"}
                               </button>
                             </div>
                           </td>
@@ -1873,28 +1891,28 @@ export default function App() {
                                 onClick={() => void settleRolleyPick(pick.id, "WIN")}
                                 disabled={rolleyLoading}
                               >
-                                Mark WIN
+                                {rolleyAction === `settle:${pick.id}:WIN` ? "Saving..." : "Mark WIN"}
                               </button>
                               <button
                                 className="ghost danger"
                                 onClick={() => void settleRolleyPick(pick.id, "LOSS")}
                                 disabled={rolleyLoading}
                               >
-                                Mark LOSS
+                                {rolleyAction === `settle:${pick.id}:LOSS` ? "Saving..." : "Mark LOSS"}
                               </button>
                               <button
                                 className="ghost"
                                 onClick={() => void settleRolleyPick(pick.id, "VOID")}
                                 disabled={rolleyLoading}
                               >
-                                Mark VOID
+                                {rolleyAction === `settle:${pick.id}:VOID` ? "Saving..." : "Mark VOID"}
                               </button>
                               <button
                                 className="ghost"
                                 onClick={() => void settleRolleyPick(pick.id, "PENDING")}
                                 disabled={rolleyLoading}
                               >
-                                Reset
+                                {rolleyAction === `settle:${pick.id}:PENDING` ? "Saving..." : "Reset"}
                               </button>
                             </div>
                           </td>
