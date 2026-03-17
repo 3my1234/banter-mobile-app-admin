@@ -66,7 +66,33 @@ type PcaCategory = {
   };
 };
 
-type AppTab = "overview" | "users" | "pca" | "rolley";
+type AdPlacement = "POST_FEED" | "BANTER_FEED";
+
+type AdCampaign = {
+  id: string;
+  placement: AdPlacement;
+  title: string;
+  body?: string | null;
+  mediaUrl?: string | null;
+  mediaType?: string | null;
+  targetUrl?: string | null;
+  ctaLabel?: string | null;
+  isActive: boolean;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+type AdSettings = {
+  id: string;
+  postFrequency: number;
+  banterFrequency: number;
+  isEnabled: boolean;
+  updatedAt?: string;
+};
+
+type AppTab = "overview" | "users" | "ads" | "pca" | "rolley";
 type RolleyOutcome = "PENDING" | "WIN" | "LOSS" | "VOID";
 
 type RolleyAdminPick = {
@@ -197,6 +223,7 @@ type RolleyAdminStakeListResponse = {
 const NAV_ITEMS: Array<{ id: AppTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "users", label: "Users" },
+  { id: "ads", label: "Ads Manager" },
   { id: "pca", label: "PCA Manager" },
   { id: "rolley", label: "Rolley Settle" },
 ];
@@ -450,7 +477,9 @@ export default function App() {
   const [token, setToken] = useState<string>(() => localStorage.getItem(TOKEN_KEY) || "");
   const [tab, setTab] = useState<AppTab>(() => {
     const saved = localStorage.getItem(TAB_KEY);
-    return saved === "overview" || saved === "users" || saved === "pca" || saved === "rolley" ? saved : "overview";
+    return saved === "overview" || saved === "users" || saved === "ads" || saved === "pca" || saved === "rolley"
+      ? saved
+      : "overview";
   });
 
   const [loginEmail, setLoginEmail] = useState("");
@@ -463,6 +492,28 @@ export default function App() {
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
   const [categories, setCategories] = useState<PcaCategory[]>([]);
+  const [ads, setAds] = useState<AdCampaign[]>([]);
+  const [adSettings, setAdSettings] = useState<AdSettings | null>(null);
+  const [adSettingsDraft, setAdSettingsDraft] = useState({
+    postFrequency: 6,
+    banterFrequency: 4,
+    isEnabled: true,
+  });
+  const [adsLoading, setAdsLoading] = useState(false);
+  const [adPlacementFilter, setAdPlacementFilter] = useState<"ALL" | AdPlacement>("ALL");
+  const [editingAdId, setEditingAdId] = useState<string | null>(null);
+  const [adForm, setAdForm] = useState({
+    placement: "POST_FEED" as AdPlacement,
+    title: "",
+    body: "",
+    mediaUrl: "",
+    mediaType: "",
+    targetUrl: "",
+    ctaLabel: "Learn more",
+    isActive: true,
+    startsAt: "",
+    endsAt: "",
+  });
   const [rolleyAdminKey, setRolleyAdminKey] = useState(ROLLEY_ADMIN_KEY_DEFAULT);
   const [rolleyDate, setRolleyDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [rolleyHistoryDate, setRolleyHistoryDate] = useState(() => addDaysToDateToken(new Date().toISOString().slice(0, 10), -1));
@@ -549,6 +600,7 @@ export default function App() {
     if (tab === "overview") return "Admin Overview";
     if (tab === "users") return "User Management";
     if (tab === "rolley") return "Rolley Settlement";
+    if (tab === "ads") return "Ads Manager";
     return "PCA Management";
   }, [tab]);
 
@@ -579,6 +631,11 @@ export default function App() {
     if (!loggedIn || tab !== "rolley") return;
     void loadRolleyPicks();
   }, [loggedIn, tab, rolleyDate, rolleyHistoryDate, rolleySport, rolleyAsset]);
+
+  useEffect(() => {
+    if (!loggedIn || tab !== "ads") return;
+    void loadAds();
+  }, [loggedIn, tab, adPlacementFilter]);
 
   useEffect(() => {
     localStorage.setItem(TAB_KEY, tab);
@@ -624,6 +681,169 @@ export default function App() {
     }
   }
 
+  function toDateTimeLocal(value?: string | null) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toISOString().slice(0, 16);
+  }
+
+  function resetAdForm() {
+    setEditingAdId(null);
+    setAdForm({
+      placement: "POST_FEED",
+      title: "",
+      body: "",
+      mediaUrl: "",
+      mediaType: "",
+      targetUrl: "",
+      ctaLabel: "Learn more",
+      isActive: true,
+      startsAt: "",
+      endsAt: "",
+    });
+  }
+
+  function beginEditAd(ad: AdCampaign) {
+    setEditingAdId(ad.id);
+    setAdForm({
+      placement: ad.placement,
+      title: ad.title || "",
+      body: ad.body || "",
+      mediaUrl: ad.mediaUrl || "",
+      mediaType: ad.mediaType || "",
+      targetUrl: ad.targetUrl || "",
+      ctaLabel: ad.ctaLabel || "Learn more",
+      isActive: Boolean(ad.isActive),
+      startsAt: toDateTimeLocal(ad.startsAt),
+      endsAt: toDateTimeLocal(ad.endsAt),
+    });
+  }
+
+  async function loadAds() {
+    try {
+      setAdsLoading(true);
+      setError("");
+      const query =
+        adPlacementFilter === "ALL" ? "" : `?placement=${encodeURIComponent(adPlacementFilter)}`;
+      const [settingsRes, adsRes] = await Promise.all([
+        request("/admin/ads/settings", token),
+        request(`/admin/ads${query}`, token),
+      ]);
+      const settings = settingsRes.settings || settingsRes;
+      setAdSettings(settings);
+      setAdSettingsDraft({
+        postFrequency: Number(settings.postFrequency || 0) || 0,
+        banterFrequency: Number(settings.banterFrequency || 0) || 0,
+        isEnabled: Boolean(settings.isEnabled),
+      });
+      setAds(Array.isArray(adsRes.ads) ? adsRes.ads : []);
+    } catch (err: any) {
+      setError(err?.message || "Failed to load ads");
+    } finally {
+      setAdsLoading(false);
+    }
+  }
+
+  async function saveAdSettings() {
+    try {
+      setAdsLoading(true);
+      setError("");
+      const payload = {
+        postFrequency: Number(adSettingsDraft.postFrequency || 0),
+        banterFrequency: Number(adSettingsDraft.banterFrequency || 0),
+        isEnabled: Boolean(adSettingsDraft.isEnabled),
+      };
+      const res = await request("/admin/ads/settings", token, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      const settings = res.settings || res;
+      setAdSettings(settings);
+      setAdSettingsDraft({
+        postFrequency: Number(settings.postFrequency || 0) || 0,
+        banterFrequency: Number(settings.banterFrequency || 0) || 0,
+        isEnabled: Boolean(settings.isEnabled),
+      });
+    } catch (err: any) {
+      setError(err?.message || "Failed to save ad settings");
+    } finally {
+      setAdsLoading(false);
+    }
+  }
+
+  async function saveAd(e: FormEvent) {
+    e.preventDefault();
+    try {
+      setAdsLoading(true);
+      setError("");
+      const payload = {
+        placement: adForm.placement,
+        title: adForm.title.trim(),
+        body: adForm.body.trim() || null,
+        mediaUrl: adForm.mediaUrl.trim() || null,
+        mediaType: adForm.mediaType.trim() || null,
+        targetUrl: adForm.targetUrl.trim() || null,
+        ctaLabel: adForm.ctaLabel.trim() || null,
+        isActive: Boolean(adForm.isActive),
+        startsAt: adForm.startsAt || null,
+        endsAt: adForm.endsAt || null,
+      };
+
+      if (!payload.title) {
+        throw new Error("Ad title is required.");
+      }
+
+      if (editingAdId) {
+        await request(`/admin/ads/${editingAdId}`, token, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await request("/admin/ads", token, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+      resetAdForm();
+      await loadAds();
+    } catch (err: any) {
+      setError(err?.message || "Failed to save ad");
+    } finally {
+      setAdsLoading(false);
+    }
+  }
+
+  async function toggleAdActive(ad: AdCampaign, nextValue: boolean) {
+    try {
+      setAdsLoading(true);
+      setError("");
+      await request(`/admin/ads/${ad.id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: nextValue }),
+      });
+      await loadAds();
+    } catch (err: any) {
+      setError(err?.message || "Failed to update ad");
+    } finally {
+      setAdsLoading(false);
+    }
+  }
+
+  async function deleteAd(ad: AdCampaign) {
+    if (!window.confirm(`Delete ad "${ad.title}"? This cannot be undone.`)) return;
+    try {
+      setAdsLoading(true);
+      setError("");
+      await request(`/admin/ads/${ad.id}`, token, { method: "DELETE" });
+      await loadAds();
+    } catch (err: any) {
+      setError(err?.message || "Failed to delete ad");
+    } finally {
+      setAdsLoading(false);
+    }
+  }
+
   async function onLogin(e: FormEvent) {
     e.preventDefault();
     try {
@@ -648,6 +868,10 @@ export default function App() {
     setSelectedUser(null);
     setSelectedNotification(null);
     setCategories([]);
+    setAds([]);
+    setAdSettings(null);
+    setAdSettingsDraft({ postFrequency: 6, banterFrequency: 4, isEnabled: true });
+    resetAdForm();
     setNewCriterion("");
     setEditingCriterion("");
     setNewNomineeStatKey("");
@@ -856,6 +1080,10 @@ export default function App() {
       } finally {
         setRolleyAction(null);
       }
+    }
+    if (tab === "ads") {
+      await loadAds();
+      return;
     }
     await loadAll();
   }
@@ -1944,6 +2172,233 @@ export default function App() {
                   </table>
                 </div>
               )}
+            </section>
+          </>
+        )}
+
+        {tab === "ads" && (
+          <>
+            <section className="split">
+              <form className="card form-card" onSubmit={saveAd}>
+                <h3>{editingAdId ? "Edit Ad Campaign" : "Create Ad Campaign"}</h3>
+                <select
+                  value={adForm.placement}
+                  onChange={(e) => setAdForm((prev) => ({ ...prev, placement: e.target.value as AdPlacement }))}
+                >
+                  <option value="POST_FEED">Post Feed</option>
+                  <option value="BANTER_FEED">Banter Feed</option>
+                </select>
+                <input
+                  value={adForm.title}
+                  onChange={(e) => setAdForm((prev) => ({ ...prev, title: e.target.value }))}
+                  placeholder="Ad title"
+                  required
+                />
+                <textarea
+                  value={adForm.body}
+                  onChange={(e) => setAdForm((prev) => ({ ...prev, body: e.target.value }))}
+                  placeholder="Ad copy (optional)"
+                />
+                <input
+                  value={adForm.mediaUrl}
+                  onChange={(e) => setAdForm((prev) => ({ ...prev, mediaUrl: e.target.value }))}
+                  placeholder="Media URL (optional)"
+                />
+                <select
+                  value={adForm.mediaType}
+                  onChange={(e) => setAdForm((prev) => ({ ...prev, mediaType: e.target.value }))}
+                >
+                  <option value="">Media type (auto)</option>
+                  <option value="image">Image</option>
+                  <option value="video">Video</option>
+                </select>
+                <input
+                  value={adForm.targetUrl}
+                  onChange={(e) => setAdForm((prev) => ({ ...prev, targetUrl: e.target.value }))}
+                  placeholder="Click-through URL (optional)"
+                />
+                <input
+                  value={adForm.ctaLabel}
+                  onChange={(e) => setAdForm((prev) => ({ ...prev, ctaLabel: e.target.value }))}
+                  placeholder="CTA label (optional)"
+                />
+                <div className="template-row">
+                  <label className="checkbox">
+                    <input
+                      type="checkbox"
+                      checked={adForm.isActive}
+                      onChange={(e) => setAdForm((prev) => ({ ...prev, isActive: e.target.checked }))}
+                    />
+                    Active
+                  </label>
+                  <label>
+                    Starts at
+                    <input
+                      type="datetime-local"
+                      value={adForm.startsAt}
+                      onChange={(e) => setAdForm((prev) => ({ ...prev, startsAt: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Ends at
+                    <input
+                      type="datetime-local"
+                      value={adForm.endsAt}
+                      onChange={(e) => setAdForm((prev) => ({ ...prev, endsAt: e.target.value }))}
+                    />
+                  </label>
+                </div>
+                <div className="template-row">
+                  <button type="submit" disabled={adsLoading}>
+                    {adsLoading ? "Saving..." : editingAdId ? "Update Ad" : "Create Ad"}
+                  </button>
+                  {editingAdId ? (
+                    <button type="button" className="ghost" onClick={resetAdForm} disabled={adsLoading}>
+                      Cancel
+                    </button>
+                  ) : null}
+                </div>
+              </form>
+
+              <div className="card form-card">
+                <h3>Placement Frequency</h3>
+                <p className="muted">Controls how often ads are injected into feeds.</p>
+                <div className="toolbar" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+                  <label>
+                    Post feed frequency
+                    <input
+                      type="number"
+                      min={1}
+                      value={adSettingsDraft.postFrequency}
+                      onChange={(e) =>
+                        setAdSettingsDraft((prev) => ({
+                          ...prev,
+                          postFrequency: Number(e.target.value || 0),
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Banter feed frequency
+                    <input
+                      type="number"
+                      min={1}
+                      value={adSettingsDraft.banterFrequency}
+                      onChange={(e) =>
+                        setAdSettingsDraft((prev) => ({
+                          ...prev,
+                          banterFrequency: Number(e.target.value || 0),
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="checkbox" style={{ alignItems: "center", gap: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={adSettingsDraft.isEnabled}
+                      onChange={(e) =>
+                        setAdSettingsDraft((prev) => ({
+                          ...prev,
+                          isEnabled: e.target.checked,
+                        }))
+                      }
+                    />
+                    Enable ads
+                  </label>
+                </div>
+                <div className="template-row">
+                  <button onClick={() => void saveAdSettings()} disabled={adsLoading}>
+                    {adsLoading ? "Saving..." : "Save Settings"}
+                  </button>
+                  {adSettings?.updatedAt ? (
+                    <small className="muted">Last updated: {formatDateTime(adSettings.updatedAt)}</small>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+
+            <section className="card table-card">
+              <div className="toolbar" style={{ gridTemplateColumns: "1fr auto" }}>
+                <select
+                  value={adPlacementFilter}
+                  onChange={(e) => setAdPlacementFilter(e.target.value as "ALL" | AdPlacement)}
+                >
+                  <option value="ALL">All Placements</option>
+                  <option value="POST_FEED">Post Feed</option>
+                  <option value="BANTER_FEED">Banter Feed</option>
+                </select>
+                <button className="ghost" onClick={() => void loadAds()} disabled={adsLoading}>
+                  {adsLoading ? "Refreshing..." : "Refresh"}
+                </button>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Placement</th>
+                      <th>Title</th>
+                      <th>Status</th>
+                      <th>CTA</th>
+                      <th>Link</th>
+                      <th>Schedule</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ads.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="muted">
+                          No ad campaigns yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      ads.map((ad) => (
+                        <tr key={ad.id}>
+                          <td>{ad.placement}</td>
+                          <td>
+                            <strong>{ad.title}</strong>
+                            <div className="muted">{displayText(ad.body, "")}</div>
+                          </td>
+                          <td>{ad.isActive ? "Active" : "Paused"}</td>
+                          <td>{displayText(ad.ctaLabel)}</td>
+                          <td>
+                            {ad.targetUrl ? (
+                              <a href={ad.targetUrl} target="_blank" rel="noreferrer" className="link-btn">
+                                Open
+                              </a>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                          <td>
+                            <div className="muted">
+                              {ad.startsAt ? `From ${formatDateTime(ad.startsAt)}` : "Always on"}
+                            </div>
+                            {ad.endsAt ? <div className="muted">Until {formatDateTime(ad.endsAt)}</div> : null}
+                          </td>
+                          <td>
+                            <div className="template-row">
+                              <button className="ghost" onClick={() => beginEditAd(ad)} disabled={adsLoading}>
+                                Edit
+                              </button>
+                              <button
+                                className="ghost"
+                                onClick={() => void toggleAdActive(ad, !ad.isActive)}
+                                disabled={adsLoading}
+                              >
+                                {ad.isActive ? "Pause" : "Activate"}
+                              </button>
+                              <button className="ghost danger" onClick={() => void deleteAd(ad)} disabled={adsLoading}>
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </section>
           </>
         )}
