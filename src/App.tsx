@@ -473,6 +473,14 @@ function resolveNomineeMediaUrl(url?: string | null) {
   return raw;
 }
 
+function resolveAdMediaType(url?: string | null, mediaType?: string | null) {
+  if (mediaType && mediaType.trim()) return mediaType.trim().toLowerCase();
+  if (!url) return "";
+  const lower = url.toLowerCase();
+  if (/\.(mp4|webm|mov|m4v)(\?|#|$)/.test(lower)) return "video";
+  return "image";
+}
+
 export default function App() {
   const [token, setToken] = useState<string>(() => localStorage.getItem(TOKEN_KEY) || "");
   const [tab, setTab] = useState<AppTab>(() => {
@@ -1420,6 +1428,38 @@ export default function App() {
     }
   }
 
+  async function handleAdFileSelected(event: ChangeEvent<HTMLInputElement>, target: "image" | "video") {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    const fieldKey = `ad-${target}`;
+
+    try {
+      setUploadingField(fieldKey);
+      setError("");
+      const presign = await request("/admin/uploads/presign", token, {
+        method: "POST",
+        body: JSON.stringify({
+          filename: file.name,
+          mimeType: file.type,
+          kind: target,
+          scope: "ads",
+        }),
+      });
+      await uploadFileToS3(presign.uploadUrl, file);
+      setAdForm((prev) => ({
+        ...prev,
+        mediaUrl: presign.viewUrl,
+        mediaType: target,
+      }));
+    } catch (err: any) {
+      setError(err?.message || "Failed to upload ad media");
+    } finally {
+      setUploadingField(null);
+    }
+  }
+
   if (!loggedIn) {
     return (
       <div className="login-wrap">
@@ -2179,9 +2219,9 @@ export default function App() {
         {tab === "ads" && (
           <>
             <section className="split">
-              <form className="card form-card" onSubmit={saveAd}>
-                <h3>{editingAdId ? "Edit Ad Campaign" : "Create Ad Campaign"}</h3>
-                <select
+                <form className="card form-card" onSubmit={saveAd}>
+                  <h3>{editingAdId ? "Edit Ad Campaign" : "Create Ad Campaign"}</h3>
+                  <select
                   value={adForm.placement}
                   onChange={(e) => setAdForm((prev) => ({ ...prev, placement: e.target.value as AdPlacement }))}
                 >
@@ -2194,29 +2234,69 @@ export default function App() {
                   placeholder="Ad title"
                   required
                 />
-                <textarea
-                  value={adForm.body}
-                  onChange={(e) => setAdForm((prev) => ({ ...prev, body: e.target.value }))}
-                  placeholder="Ad copy (optional)"
-                />
-                <input
-                  value={adForm.mediaUrl}
-                  onChange={(e) => setAdForm((prev) => ({ ...prev, mediaUrl: e.target.value }))}
-                  placeholder="Media URL (optional)"
-                />
-                <select
-                  value={adForm.mediaType}
-                  onChange={(e) => setAdForm((prev) => ({ ...prev, mediaType: e.target.value }))}
-                >
-                  <option value="">Media type (auto)</option>
-                  <option value="image">Image</option>
-                  <option value="video">Video</option>
-                </select>
-                <input
-                  value={adForm.targetUrl}
-                  onChange={(e) => setAdForm((prev) => ({ ...prev, targetUrl: e.target.value }))}
-                  placeholder="Click-through URL (optional)"
-                />
+                  <textarea
+                    value={adForm.body}
+                    onChange={(e) => setAdForm((prev) => ({ ...prev, body: e.target.value }))}
+                    placeholder="Ad copy (optional)"
+                  />
+                  <input
+                    value={adForm.mediaUrl}
+                    onChange={(e) => setAdForm((prev) => ({ ...prev, mediaUrl: e.target.value }))}
+                    placeholder="Media URL (optional)"
+                  />
+                  <div className="template-row">
+                    <label className="ghost upload-btn">
+                      Upload image
+                      <input type="file" accept="image/*" onChange={(e) => void handleAdFileSelected(e, "image")} />
+                    </label>
+                    <label className="ghost upload-btn">
+                      Upload video
+                      <input type="file" accept="video/*" onChange={(e) => void handleAdFileSelected(e, "video")} />
+                    </label>
+                  </div>
+                  {uploadingField === "ad-image" ? <small className="muted">Uploading image...</small> : null}
+                  {uploadingField === "ad-video" ? <small className="muted">Uploading video...</small> : null}
+                  <select
+                    value={adForm.mediaType}
+                    onChange={(e) => setAdForm((prev) => ({ ...prev, mediaType: e.target.value }))}
+                  >
+                    <option value="">Media type (auto)</option>
+                    <option value="image">Image</option>
+                    <option value="video">Video</option>
+                  </select>
+                  {adForm.mediaUrl ? (
+                    <div className="nominee-preview-grid">
+                      {resolveAdMediaType(adForm.mediaUrl, adForm.mediaType) === "video" ? (
+                        <div className="nominee-preview-video-wrap">
+                          <video
+                            src={resolveNomineeMediaUrl(adForm.mediaUrl)}
+                            className="nominee-preview-video"
+                            controls
+                            preload="metadata"
+                          />
+                        </div>
+                      ) : (
+                        <a
+                          href={resolveNomineeMediaUrl(adForm.mediaUrl)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="nominee-preview-link"
+                        >
+                          <img
+                            src={resolveNomineeMediaUrl(adForm.mediaUrl)}
+                            alt="Ad media preview"
+                            className="nominee-preview-image"
+                            loading="lazy"
+                          />
+                        </a>
+                      )}
+                    </div>
+                  ) : null}
+                  <input
+                    value={adForm.targetUrl}
+                    onChange={(e) => setAdForm((prev) => ({ ...prev, targetUrl: e.target.value }))}
+                    placeholder="Click-through URL (optional)"
+                  />
                 <input
                   value={adForm.ctaLabel}
                   onChange={(e) => setAdForm((prev) => ({ ...prev, ctaLabel: e.target.value }))}
