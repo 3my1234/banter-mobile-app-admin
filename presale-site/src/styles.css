@@ -1,9 +1,9 @@
 :root {
   color-scheme: dark;
-  --bg: #090303;
-  --bg-soft: #160808;
-  --panel: rgba(27, 10, 8, 0.9);
-  --panel-strong: rgba(39, 14, 10, 0.96);
+  --bg: #000000;
+  --bg-soft: #121212;
+  --panel: rgba(15, 15, 15, 0.96);
+  --panel-strong: rgba(22, 22, 22, 0.98);
   --line: rgba(255, 178, 71, 0.18);
   --text: #fff3df;
   --muted: #d5b48a;
@@ -25,10 +25,7 @@ html {
 body {
   margin: 0;
   color: var(--text);
-  background:
-    radial-gradient(circle at top, rgba(255, 119, 0, 0.15), transparent 34%),
-    radial-gradient(circle at 85% 20%, rgba(255, 208, 92, 0.12), transparent 24%),
-    linear-gradient(180deg, #130505 0%, #080202 100%);
+  background: linear-gradient(180deg, #000 0%, #050505 100%);
 }
 
 body::before {
@@ -37,8 +34,8 @@ body::before {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(120deg, transparent 0%, rgba(255, 136, 0, 0.06) 48%, transparent 100%),
-    radial-gradient(circle at bottom, rgba(255, 80, 0, 0.08), transparent 30%);
+    linear-gradient(120deg, transparent 0%, rgba(255, 136, 0, 0.04) 48%, transparent 100%),
+    radial-gradient(circle at bottom, rgba(255, 80, 0, 0.05), transparent 30%);
 }
 
 .page-shell {
@@ -213,6 +210,12 @@ body::before {
   font-size: 2rem;
 }
 
+.section-note {
+  margin: 14px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
 .offers-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -225,7 +228,7 @@ body::before {
   text-align: left;
   border-radius: 22px;
   color: var(--text);
-  background: linear-gradient(180deg, rgba(47, 14, 10, 0.96), rgba(28, 10, 8, 0.96));
+  background: linear-gradient(180deg, rgba(24, 24, 24, 0.98), rgba(17, 17, 17, 0.98));
   border: 1px solid rgba(255, 178, 71, 0.14);
 }
 
@@ -262,7 +265,7 @@ body::before {
 .faq-list article {
   padding: 16px 18px;
   border-radius: 18px;
-  background: rgba(255, 170, 68, 0.05);
+  background: rgba(20, 20, 20, 0.96);
   border: 1px solid rgba(255, 170, 68, 0.12);
 }
 
@@ -314,7 +317,7 @@ body::before {
 .checkout-summary > div {
   padding: 16px;
   border-radius: 18px;
-  background: rgba(255, 171, 71, 0.06);
+  background: rgba(18, 18, 18, 0.98);
   border: 1px solid rgba(255, 171, 71, 0.14);
 }
 

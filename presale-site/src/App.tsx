@@ -14,23 +14,23 @@ const PACKAGE_OPTIONS: PackageOption[] = [
   {
     id: "starter",
     label: "Starter Allocation",
-    rol: "100,000 ROL",
-    price: "$100",
-    note: "For early supporters who want a smaller reserved allocation.",
+    rol: "1,000 ROL",
+    price: "$500",
+    note: "Entry package priced at $0.50 per ROL for early committed buyers.",
   },
   {
     id: "core",
     label: "Core Allocation",
-    rol: "250,000 ROL",
-    price: "$250",
-    note: "Balanced allocation for early buyers who want stronger exposure.",
+    rol: "5,000 ROL",
+    price: "$2,500",
+    note: "Mid-tier allocation for buyers who want a larger reserved position.",
   },
   {
     id: "treasury",
     label: "Treasury Allocation",
-    rol: "1,000,000 ROL",
-    price: "$1,000",
-    note: "Reserved for committed early backers supporting scale and liquidity.",
+    rol: "10,000 ROL",
+    price: "$5,000",
+    note: "Larger allocation for supporters funding scale, liquidity, and launch operations.",
   },
 ];
 
@@ -87,12 +87,13 @@ export default function App() {
   return (
     <div className="page-shell">
       <header className="hero">
-        <div className="hero-copy">
+          <div className="hero-copy">
           <div className="eyebrow">Early Allocation Access</div>
           <h1>Banter x Rolley Presale</h1>
           <p className="hero-text">
-            Secure a reserved ROL allocation linked to your Banter account. This page is built
-            for early supporters funding scale, liquidity, and launch operations.
+            Secure a reserved ROL allocation linked to your Banter account. Presale allocations
+            are tracked against your Banter identity and prepared for later token claim or
+            distribution.
           </p>
           <div className="hero-actions">
             <a className="primary-cta" href="#checkout">
@@ -128,6 +129,11 @@ export default function App() {
             <span>Packages</span>
             <h2>Select an early allocation</h2>
           </div>
+          <p className="section-note">
+            Current pricing on this page is based on an early sale rate of <strong>$0.50 per ROL</strong>.
+            If you decide to move selected packages to <strong>$1.00 per ROL</strong>, only the package
+            price layer needs to change.
+          </p>
           <div className="offers-grid">
             {PACKAGE_OPTIONS.map((item) => {
               const active = item.id === selectedPackage.id;
@@ -229,30 +235,6 @@ export default function App() {
           </form>
         </section>
 
-        <section className="panel faq-panel">
-          <div className="section-heading">
-            <span>FAQ</span>
-            <h2>What this site already solves</h2>
-          </div>
-          <div className="faq-list">
-            <article>
-              <strong>Can this use your Namecheap domain?</strong>
-              <p>Yes. Point a subdomain like <code>buy.sportbanter.online</code> to Coolify/VPS.</p>
-            </article>
-            <article>
-              <strong>Can it sit on Coolify?</strong>
-              <p>Yes. Deploy this folder as its own static Vite site.</p>
-            </article>
-            <article>
-              <strong>Can Flutterwave show Banter + Rolley branding?</strong>
-              <p>Yes, but Flutterwave accepts one logo URL, so use a single cobranded image asset.</p>
-            </article>
-            <article>
-              <strong>Does this update a live wallet balance?</strong>
-              <p>No. It should update a presale allocation ledger until token claim/distribution is live.</p>
-            </article>
-          </div>
-        </section>
       </main>
     </div>
   );
