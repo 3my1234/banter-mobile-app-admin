@@ -2,37 +2,10 @@ import { FormEvent, useMemo, useState } from "react";
 import banterLogo from "./assets/banter-logo.jpg";
 import rolLogo from "./assets/rol-logo.png";
 
-type PackageOption = {
-  id: string;
-  label: string;
-  rol: string;
-  price: string;
-  note: string;
-};
-
-const PACKAGE_OPTIONS: PackageOption[] = [
-  {
-    id: "starter",
-    label: "Starter Allocation",
-    rol: "1,000 ROL",
-    price: "$500",
-    note: "Entry package priced at $0.50 per ROL for early committed buyers.",
-  },
-  {
-    id: "core",
-    label: "Core Allocation",
-    rol: "5,000 ROL",
-    price: "$2,500",
-    note: "Mid-tier allocation for buyers who want a larger reserved position.",
-  },
-  {
-    id: "treasury",
-    label: "Treasury Allocation",
-    rol: "10,000 ROL",
-    price: "$5,000",
-    note: "Larger allocation for supporters funding scale, liquidity, and launch operations.",
-  },
-];
+const PRESALE_MIN_ROL = 10;
+const PRESALE_MAX_ROL = 10_000;
+const PRESALE_UNIT_PRICE_USD = 0.5;
+const QUICK_PICK_AMOUNTS = [10, 100, 1_000, 5_000, 10_000];
 
 const checkoutBase =
   import.meta.env.VITE_PRESALE_CHECKOUT_BASE_URL?.trim() || "";
@@ -41,18 +14,41 @@ const supportEmail =
 const salesDomain =
   import.meta.env.VITE_PRESALE_DOMAIN?.trim() || "buy.sportbanter.online";
 
+const formatRol = (amount: number) => `${amount.toLocaleString()} ROL`;
+const formatUsd = (amount: number) => `$${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
 export default function App() {
-  const [selectedPackageId, setSelectedPackageId] = useState(PACKAGE_OPTIONS[1].id);
+  const [rolAmountInput, setRolAmountInput] = useState("1000");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [banterHandle, setBanterHandle] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
 
-  const selectedPackage = useMemo(
-    () => PACKAGE_OPTIONS.find((item) => item.id === selectedPackageId) || PACKAGE_OPTIONS[1],
-    [selectedPackageId]
+  const parsedRolAmount = useMemo(() => {
+    const cleaned = rolAmountInput.replace(/[^\d]/g, "");
+    const value = Number(cleaned);
+    return Number.isFinite(value) ? value : 0;
+  }, [rolAmountInput]);
+
+  const clampedRolAmount = useMemo(
+    () =>
+      Math.min(
+        PRESALE_MAX_ROL,
+        Math.max(PRESALE_MIN_ROL, Math.floor(parsedRolAmount || PRESALE_MIN_ROL))
+      ),
+    [parsedRolAmount]
   );
+
+  const totalPriceUsd = useMemo(
+    () => Number((clampedRolAmount * PRESALE_UNIT_PRICE_USD).toFixed(2)),
+    [clampedRolAmount]
+  );
+
+  const setRolAmount = (nextAmount: number) => {
+    const normalized = Math.min(PRESALE_MAX_ROL, Math.max(PRESALE_MIN_ROL, Math.floor(nextAmount)));
+    setRolAmountInput(String(normalized));
+  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -60,6 +56,11 @@ export default function App() {
 
     if (!fullName.trim() || !email.trim() || !banterHandle.trim()) {
       setNotice("Full name, email, and Banter handle are required.");
+      return;
+    }
+
+    if (!Number.isInteger(parsedRolAmount) || parsedRolAmount < PRESALE_MIN_ROL || parsedRolAmount > PRESALE_MAX_ROL) {
+      setNotice(`ROL amount must be a whole number between ${PRESALE_MIN_ROL} and ${PRESALE_MAX_ROL}.`);
       return;
     }
 
@@ -71,10 +72,7 @@ export default function App() {
     }
 
     const params = new URLSearchParams({
-      packageId: selectedPackage.id,
-      packageLabel: selectedPackage.label,
-      rolAmount: selectedPackage.rol,
-      fiatAmount: selectedPackage.price,
+      rolAmount: String(parsedRolAmount),
       fullName: fullName.trim(),
       email: email.trim(),
       banterHandle: banterHandle.trim(),
@@ -126,31 +124,41 @@ export default function App() {
       <main className="content-grid">
         <section className="panel offers-panel">
           <div className="section-heading">
-            <span>Packages</span>
+            <span>Allocation</span>
             <h2>Select an early allocation</h2>
           </div>
           <p className="section-note">
-            Current pricing on this page is based on an early sale rate of <strong>$0.50 per ROL</strong>.
-            If you decide to move selected packages to <strong>$1.00 per ROL</strong>, only the package
-            price layer needs to change.
+            Choose any amount between <strong>{PRESALE_MIN_ROL.toLocaleString()} ROL</strong> and{" "}
+            <strong>{PRESALE_MAX_ROL.toLocaleString()} ROL</strong>. Pricing is fixed at{" "}
+            <strong>${PRESALE_UNIT_PRICE_USD.toFixed(2)} per ROL</strong>.
           </p>
-          <div className="offers-grid">
-            {PACKAGE_OPTIONS.map((item) => {
-              const active = item.id === selectedPackage.id;
-              return (
+          <div className="allocation-builder">
+            <label className="amount-field">
+              Enter ROL amount
+              <input
+                type="number"
+                min={PRESALE_MIN_ROL}
+                max={PRESALE_MAX_ROL}
+                step={1}
+                value={rolAmountInput}
+                onChange={(e) => setRolAmountInput(e.target.value)}
+              />
+            </label>
+            <div className="amount-hint">
+              Allowed range: {PRESALE_MIN_ROL.toLocaleString()} to {PRESALE_MAX_ROL.toLocaleString()} ROL
+            </div>
+            <div className="quick-picks">
+              {QUICK_PICK_AMOUNTS.map((amount) => (
                 <button
-                  key={item.id}
+                  key={amount}
                   type="button"
-                  className={`offer-card${active ? " active" : ""}`}
-                  onClick={() => setSelectedPackageId(item.id)}
+                  className={`quick-pick${clampedRolAmount === amount ? " active" : ""}`}
+                  onClick={() => setRolAmount(amount)}
                 >
-                  <div className="offer-label">{item.label}</div>
-                  <div className="offer-rol">{item.rol}</div>
-                  <div className="offer-price">{item.price}</div>
-                  <p>{item.note}</p>
+                  {amount.toLocaleString()} ROL
                 </button>
-              );
-            })}
+              ))}
+            </div>
           </div>
         </section>
 
@@ -182,7 +190,7 @@ export default function App() {
         <section className="panel checkout-panel" id="checkout">
           <div className="section-heading">
             <span>Checkout</span>
-            <h2>Reserve {selectedPackage.rol}</h2>
+            <h2>Reserve {formatRol(clampedRolAmount)}</h2>
           </div>
 
           <form className="checkout-form" onSubmit={handleSubmit}>
@@ -209,16 +217,16 @@ export default function App() {
 
             <div className="checkout-summary">
               <div>
-                <span>Selected package</span>
-                <strong>{selectedPackage.label}</strong>
+                <span>Selected allocation</span>
+                <strong>{formatRol(clampedRolAmount)}</strong>
               </div>
               <div>
-                <span>Allocation</span>
-                <strong>{selectedPackage.rol}</strong>
+                <span>Unit price</span>
+                <strong>{formatUsd(PRESALE_UNIT_PRICE_USD)}</strong>
               </div>
               <div>
-                <span>Price</span>
-                <strong>{selectedPackage.price}</strong>
+                <span>Total price</span>
+                <strong>{formatUsd(totalPriceUsd)}</strong>
               </div>
             </div>
 
