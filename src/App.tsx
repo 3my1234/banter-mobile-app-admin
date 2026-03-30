@@ -620,6 +620,10 @@ export default function App() {
     () => rolleyPositions.filter((row) => row.status === "MATURED" && row.sport === rolleySport),
     [rolleyPositions, rolleySport]
   );
+  const rolleyLostPositions = useMemo(
+    () => rolleyPositions.filter((row) => row.status === "LOST" && row.sport === rolleySport),
+    [rolleyPositions, rolleySport]
+  );
 
   const categoryOptions = useMemo(
     () =>
@@ -941,17 +945,51 @@ export default function App() {
         as_of_date: rolleyDate,
         stake_asset: rolleyAsset,
       });
-      const [queueRes, historyRes, productRes, positionsRes] = await Promise.all([
+      const [queueRes, historyRes, productRes, positionsRes] = await Promise.allSettled([
         requestRolley(`/api/v1/admin/picks?${queueQuery.toString()}`, rolleyAdminKey),
         requestRolley(`/api/v1/admin/picks/history?${historyQuery.toString()}`, rolleyAdminKey),
         requestRolley(`/api/v1/products/daily?${queueQuery.toString()}`, rolleyAdminKey),
         requestRolley(`/api/v1/admin/rollover/positions?${rolloverQuery.toString()}`, rolleyAdminKey),
       ]);
-      setRolleyPicks(Array.isArray(queueRes?.picks) ? queueRes.picks : []);
-      setRolleyHistory(Array.isArray(historyRes?.picks) ? historyRes.picks : []);
-      const currentProduct = Array.isArray((productRes as RolleyDailyProductsResponse)?.products)
-        ? productRes.products[0] ?? null
-        : null;
+      const failures: string[] = [];
+
+      if (queueRes.status === "fulfilled") {
+        setRolleyPicks(Array.isArray(queueRes.value?.picks) ? queueRes.value.picks : []);
+      } else {
+        setRolleyPicks([]);
+        failures.push(`Queue: ${queueRes.reason?.message || "failed"}`);
+      }
+
+      if (historyRes.status === "fulfilled") {
+        const directHistory = Array.isArray(historyRes.value?.picks) ? historyRes.value.picks : [];
+        if (directHistory.length) {
+          setRolleyHistory(directHistory);
+        } else {
+          try {
+            const fallbackQuery = new URLSearchParams({
+              sport: rolleySport,
+              before_date: rolleyDate,
+              limit: "100",
+            });
+            const fallback = await requestRolley(
+              `/api/v1/admin/picks/history?${fallbackQuery.toString()}`,
+              rolleyAdminKey
+            );
+            setRolleyHistory(Array.isArray(fallback?.picks) ? fallback.picks : []);
+          } catch {
+            setRolleyHistory([]);
+          }
+        }
+      } else {
+        setRolleyHistory([]);
+        failures.push(`History: ${historyRes.reason?.message || "failed"}`);
+      }
+
+      const currentProduct =
+        productRes.status === "fulfilled" &&
+        Array.isArray((productRes.value as RolleyDailyProductsResponse)?.products)
+          ? productRes.value.products[0] ?? null
+          : null;
       setRolleyDailyProduct(currentProduct);
       setDailyFactorInput(
         currentProduct?.manual_factor_override != null
@@ -960,15 +998,29 @@ export default function App() {
             ? currentProduct.combined_odds.toFixed(3)
             : ""
       );
-      setRolleyPositions(Array.isArray((positionsRes as RolleyAdminStakeListResponse)?.stakes) ? positionsRes.stakes : []);
+      if (positionsRes.status === "fulfilled") {
+        setRolleyPositions(
+          Array.isArray((positionsRes.value as RolleyAdminStakeListResponse)?.stakes)
+            ? positionsRes.value.stakes
+            : []
+        );
+      } else {
+        setRolleyPositions([]);
+        failures.push(`Positions: ${positionsRes.reason?.message || "failed"}`);
+      }
       try {
         const summary = await requestRolley(
           `/api/v1/admin/rollover/summary?${rolloverQuery.toString()}`,
           rolleyAdminKey
         );
         setRolleySummary(summary || null);
-      } catch {
+      } catch (summaryErr: any) {
         setRolleySummary(null);
+        failures.push(`Summary: ${summaryErr?.message || "failed"}`);
+      }
+
+      if (failures.length) {
+        setError(`Rolley partial load: ${failures.join(" | ")}`);
       }
     } catch (err: any) {
       setError(err?.message || "Failed to load Rolley picks");
@@ -1961,6 +2013,48 @@ export default function App() {
                     </thead>
                     <tbody>
                       {rolleyActivePositions.map((row) => (
+                        <tr key={row.id}>
+                          <td>
+                            <strong>{row.user_id}</strong>
+                            <div className="muted">{row.id}</div>
+                          </td>
+                          <td>{formatStakeAmount(row.principal_amount, row.stake_asset)}</td>
+                          <td>{formatStakeAmount(row.current_amount, row.stake_asset)}</td>
+                          <td>
+                            {row.days_completed}/{row.lock_days}
+                            <div className="muted">{row.days_remaining} remaining</div>
+                          </td>
+                          <td>{displayText(row.latest_outcome)}</td>
+                          <td>{row.ends_on}</td>
+                          <td>{row.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            <section className="card table-card">
+              <h3>Lost Rollover Positions</h3>
+              {!rolleyLostPositions.length ? (
+                <p className="muted">No lost positions for the selected sport.</p>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Stake</th>
+                        <th>Current</th>
+                        <th>Days</th>
+                        <th>Latest</th>
+                        <th>Ends</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rolleyLostPositions.map((row) => (
                         <tr key={row.id}>
                           <td>
                             <strong>{row.user_id}</strong>
