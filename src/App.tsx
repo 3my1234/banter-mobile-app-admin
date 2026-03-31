@@ -415,6 +415,20 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString();
 }
 
+function statusChipClass(value?: string | null) {
+  const normalized = String(value || "").toUpperCase();
+  if (normalized === "WIN" || normalized === "MATURED" || normalized === "ACTIVE") {
+    return "status-chip good";
+  }
+  if (normalized === "LOSS" || normalized === "LOST" || normalized === "FAILED") {
+    return "status-chip bad";
+  }
+  if (normalized === "VOID") {
+    return "status-chip muted";
+  }
+  return "status-chip pending";
+}
+
 function movementTxUrl(hash?: string | null) {
   if (!hash) return "";
   return `${MOVEMENT_EXPLORER_BASE}/txn/${hash}?network=${MOVEMENT_EXPLORER_NETWORK}`;
@@ -1809,9 +1823,12 @@ export default function App() {
 
         {tab === "rolley" && (
           <>
-            <section className="card">
-              <h3>Daily Pick Settlement</h3>
-              <div className="toolbar" style={{ gridTemplateColumns: "220px 160px 140px 220px 1fr auto auto" }}>
+            <section className="card rolley-controls-card">
+              <div className="card-headline">
+                <h3>Daily Pick Settlement</h3>
+                <p className="muted">Run ingestion, rebuild reasoned picks, and settle outcomes from one workspace.</p>
+              </div>
+              <div className="toolbar rolley-toolbar">
                 <input type="date" value={rolleyDate} onChange={(e) => setRolleyDate(e.target.value)} />
                 <select value={rolleySport} onChange={(e) => setRolleySport(e.target.value as "SOCCER" | "BASKETBALL")}>
                   <option value="SOCCER">SOCCER</option>
@@ -1848,28 +1865,28 @@ export default function App() {
             {rolleySummary ? (
               <section className="card">
                 <h3>Rollover Summary</h3>
-                <div className="mini-stats" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
-                  <div>
+                <div className="summary-grid summary-grid-3">
+                  <div className="summary-tile">
                     <strong>{rolleySummary.active_positions}</strong>
                     <div className="muted">Active Positions</div>
                   </div>
-                  <div>
+                  <div className="summary-tile">
                     <strong>{rolleySummary.active_users}</strong>
                     <div className="muted">Active Users</div>
                   </div>
-                  <div>
+                  <div className="summary-tile">
                     <strong>{formatStakeAmount(rolleySummary.active_principal_amount, rolleySummary.stake_asset)}</strong>
                     <div className="muted">Active Principal</div>
                   </div>
-                  <div>
+                  <div className="summary-tile">
                     <strong>{formatStakeAmount(rolleySummary.active_current_amount, rolleySummary.stake_asset)}</strong>
                     <div className="muted">Current Exposure</div>
                   </div>
-                  <div>
+                  <div className="summary-tile">
                     <strong>{formatStakeAmount(rolleySummary.matured_payout_amount, rolleySummary.stake_asset)}</strong>
                     <div className="muted">Matured Payouts</div>
                   </div>
-                  <div>
+                  <div className="summary-tile">
                     <strong>{formatStakeAmount(rolleySummary.accrued_platform_fee_amount, rolleySummary.stake_asset)}</strong>
                     <div className="muted">Accrued Banter Fee</div>
                   </div>
@@ -1912,21 +1929,23 @@ export default function App() {
             {rolleyDailyProduct ? (
               <section className="card">
                 <h3>Today's Rollover Product</h3>
-                <div className="mini-stats" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
-                  <div>
+                <div className="summary-grid summary-grid-4">
+                  <div className="summary-tile">
                     <strong>{rolleyDailyProduct.kind}</strong>
                     <div className="muted">Product Type</div>
                   </div>
-                  <div>
+                  <div className="summary-tile">
                     <strong>{(rolleyDailyProduct.combined_confidence * 100).toFixed(2)}%</strong>
                     <div className="muted">Combined Confidence</div>
                   </div>
-                  <div>
+                  <div className="summary-tile">
                     <strong>x{(rolleyDailyProduct.manual_factor_override ?? rolleyDailyProduct.combined_odds).toFixed(3)}</strong>
                     <div className="muted">Daily Factor</div>
                   </div>
-                  <div>
-                    <strong>{rolleyDailyProduct.outcome}</strong>
+                  <div className="summary-tile">
+                    <strong>
+                      <span className={statusChipClass(rolleyDailyProduct.outcome)}>{rolleyDailyProduct.outcome}</span>
+                    </strong>
                     <div className="muted">Current Outcome</div>
                   </div>
                 </div>
@@ -1994,6 +2013,7 @@ export default function App() {
             ) : null}
 
             <section className="card table-card">
+              <h4 className="section-kicker">Position Queues</h4>
               <h3>Active Rollover Positions</h3>
               {!rolleyActivePositions.length ? (
                 <p className="muted">No active positions for the selected sport.</p>
@@ -2024,9 +2044,13 @@ export default function App() {
                             {row.days_completed}/{row.lock_days}
                             <div className="muted">{row.days_remaining} remaining</div>
                           </td>
-                          <td>{displayText(row.latest_outcome)}</td>
+                          <td>
+                            <span className={statusChipClass(row.latest_outcome)}>{displayText(row.latest_outcome)}</span>
+                          </td>
                           <td>{row.ends_on}</td>
-                          <td>{row.status}</td>
+                          <td>
+                            <span className={statusChipClass(row.status)}>{row.status}</span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -2066,9 +2090,13 @@ export default function App() {
                             {row.days_completed}/{row.lock_days}
                             <div className="muted">{row.days_remaining} remaining</div>
                           </td>
-                          <td>{displayText(row.latest_outcome)}</td>
+                          <td>
+                            <span className={statusChipClass(row.latest_outcome)}>{displayText(row.latest_outcome)}</span>
+                          </td>
                           <td>{row.ends_on}</td>
-                          <td>{row.status}</td>
+                          <td>
+                            <span className={statusChipClass(row.status)}>{row.status}</span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -2121,6 +2149,7 @@ export default function App() {
             </section>
 
             <section className="card table-card">
+              <h4 className="section-kicker">Pick Operations</h4>
               <h3>Settlement Queue</h3>
               <p className="muted">These are today&apos;s reasoned candidate picks. The rollover product above is the final managed selection.</p>
               {!rolleyPicks.length ? (
@@ -2157,7 +2186,11 @@ export default function App() {
                           <td>{(pick.confidence * 100).toFixed(2)}%</td>
                           <td>{pick.implied_odds ? `x${pick.implied_odds.toFixed(3)}` : "-"}</td>
                           <td>{pick.is_primary ? "Yes" : "No"}</td>
-                          <td>{pick.settlement_outcome || "PENDING"}</td>
+                          <td>
+                            <span className={statusChipClass(pick.settlement_outcome || "PENDING")}>
+                              {pick.settlement_outcome || "PENDING"}
+                            </span>
+                          </td>
                           <td>{displayText(pick.settled_by)}</td>
                           <td>{formatDateTime(pick.settled_at)}</td>
                           <td>
@@ -2254,7 +2287,11 @@ export default function App() {
                             {pick.market}: {pick.selection}
                           </td>
                           <td>{(pick.confidence * 100).toFixed(2)}%</td>
-                          <td>{pick.settlement_outcome || "PENDING"}</td>
+                          <td>
+                            <span className={statusChipClass(pick.settlement_outcome || "PENDING")}>
+                              {pick.settlement_outcome || "PENDING"}
+                            </span>
+                          </td>
                           <td>{displayText(pick.settled_by)}</td>
                           <td>{formatDateTime(pick.settled_at)}</td>
                           <td>
@@ -2572,7 +2609,7 @@ export default function App() {
                                 {ad.isActive ? "Pause" : "Activate"}
                               </button>
                               <button className="ghost danger" onClick={() => void deleteAd(ad)} disabled={adsLoading}>
-                                Delete
+                                🗑 Delete
                               </button>
                             </div>
                           </td>
@@ -2830,7 +2867,7 @@ export default function App() {
                             Edit
                           </button>
                           <button className="ghost danger" onClick={() => void deleteCategory(category.id)}>
-                            Delete
+                            🗑 Delete
                           </button>
                         </div>
                       </div>
@@ -2907,7 +2944,7 @@ export default function App() {
                                   Edit
                                 </button>
                                 <button className="ghost danger" onClick={() => void deleteNominee(nominee.id)}>
-                                  Delete
+                                  🗑 Delete
                                 </button>
                               </div>
                             </div>
