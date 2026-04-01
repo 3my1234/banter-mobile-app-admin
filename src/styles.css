@@ -197,6 +197,10 @@ button:disabled {
   min-width: 0;
 }
 
+.content > * {
+  flex: 0 0 auto;
+}
+
 .page-error {
   margin: 0;
 }
