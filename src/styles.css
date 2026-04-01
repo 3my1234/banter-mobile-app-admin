@@ -9,6 +9,12 @@
   --danger: #ef4444;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -18,6 +24,7 @@ body {
   color: var(--text);
   background: radial-gradient(1200px 500px at 40% -10%, #182746 0%, var(--bg) 45%);
   font-family: Inter, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
 }
 
 button,
@@ -86,9 +93,12 @@ button:disabled {
 }
 
 .admin-shell {
-  min-height: 100vh;
+  position: fixed;
+  inset: 0;
+  width: 100%;
   display: grid;
   grid-template-columns: 250px 1fr;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -98,6 +108,10 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .brand {
@@ -124,6 +138,8 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .nav-btn {
@@ -148,6 +164,10 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  position: sticky;
+  bottom: 0;
+  background: #0d1220;
+  padding-top: 8px;
 }
 
 .sidebar-footer small {
@@ -171,6 +191,10 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
 }
 
 .page-error {
@@ -239,7 +263,7 @@ button:disabled {
 }
 
 .rolley-toolbar {
-  grid-template-columns: 220px 160px 140px 220px minmax(240px, 1fr) auto auto;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .summary-grid {
@@ -314,8 +338,12 @@ button:disabled {
 
 .split {
   display: grid;
-  grid-template-columns: minmax(520px, 1fr) minmax(300px, 0.8fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   gap: 10px;
+}
+
+.split > * {
+  min-width: 0;
 }
 
 .table-card {
@@ -713,14 +741,29 @@ pre {
   gap: 8px;
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 900px) {
+  body {
+    overflow: auto;
+  }
+
   .admin-shell {
+    position: static;
+    height: auto;
     grid-template-columns: 1fr;
+    overflow: visible;
   }
 
   .sidebar {
+    position: static;
+    height: auto;
+    overflow: visible;
     border-right: 0;
     border-bottom: 1px solid var(--border);
+  }
+
+  .content {
+    height: auto;
+    overflow: visible;
   }
 
   .sidebar-nav {

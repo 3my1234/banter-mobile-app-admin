@@ -407,6 +407,13 @@ function displayText(value: unknown, fallback = "-") {
   }
 }
 
+function shortContent(value: unknown, max = 90) {
+  const text = displayText(value, "");
+  if (!text) return "-";
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1)}...`;
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
   const raw = typeof value === "string" ? value : displayText(value);
@@ -938,6 +945,22 @@ export default function App() {
       setSelectedUser(res.user || null);
     } catch (err: any) {
       setError(err?.message || "Failed to load user detail");
+    }
+  }
+
+  async function deleteNormalPost(postId: string) {
+    if (!selectedUser?.id) return;
+    const accepted = window.confirm("Delete this normal post permanently?");
+    if (!accepted) return;
+    try {
+      setBusy(true);
+      setError("");
+      await request(`/admin/posts/${postId}`, token, { method: "DELETE" });
+      await Promise.all([openUser(selectedUser.id), searchUsers()]);
+    } catch (err: any) {
+      setError(err?.message || "Failed to delete post");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1758,8 +1781,52 @@ export default function App() {
                       )}
                     </div>
 
-                    <div className="detail-section">
-                      <h4>Recent Payments</h4>
+	                    <div className="detail-section">
+	                      <h4>Recent Normal Posts</h4>
+	                      {!selectedUser.posts?.filter((post: any) => !post.isRoast).length ? (
+	                        <p className="muted">No normal posts yet.</p>
+	                      ) : (
+	                        <div className="table-wrap compact">
+	                          <table>
+	                            <thead>
+	                              <tr>
+	                                <th>Time</th>
+	                                <th>Content</th>
+	                                <th>Status</th>
+	                                <th>Votes</th>
+	                                <th />
+	                              </tr>
+	                            </thead>
+	                            <tbody>
+	                              {selectedUser.posts
+	                                .filter((post: any) => !post.isRoast)
+	                                .map((post: any) => (
+	                                  <tr key={post.id}>
+	                                    <td>{formatDateTime(post.createdAt)}</td>
+	                                    <td title={displayText(post.content, "")}>{shortContent(post.content)}</td>
+	                                    <td>{displayText(post.status)}</td>
+	                                    <td>
+	                                      {displayText(post.stayVotes, "0")} / {displayText(post.dropVotes, "0")}
+	                                    </td>
+	                                    <td>
+	                                      <button
+	                                        className="ghost danger"
+	                                        onClick={() => void deleteNormalPost(post.id)}
+	                                        disabled={busy}
+	                                      >
+	                                        Delete
+	                                      </button>
+	                                    </td>
+	                                  </tr>
+	                                ))}
+	                            </tbody>
+	                          </table>
+	                        </div>
+	                      )}
+	                    </div>
+
+	                    <div className="detail-section">
+	                      <h4>Recent Payments</h4>
                       {!selectedUser.payments?.length ? (
                         <p className="muted">No payments yet.</p>
                       ) : (
