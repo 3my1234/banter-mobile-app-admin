@@ -4,6 +4,13 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://sportbanter.onlin
 const API_ORIGIN = API_BASE.replace(/\/api\/?$/, "");
 const MEDIA_BASE = (import.meta.env.VITE_MEDIA_BASE_URL || "https://media.sportbanter.online").replace(/\/+$/, "");
 const ROLLEY_BASE = (import.meta.env.VITE_ROLLEY_SERVICE_URL || "https://sportbanter.online/rolley").replace(/\/+$/, "");
+const ROLLEY_BASE_FALLBACKS = Array.from(
+  new Set(
+    [ROLLEY_BASE, "https://rolley.sportbanter.online", "https://sportbanter.online/rolley"].map((item) =>
+      item.replace(/\/+$/, "")
+    )
+  )
+);
 const ROLLEY_ADMIN_KEY_DEFAULT = import.meta.env.VITE_ROLLEY_ADMIN_KEY || "";
 const MOVEMENT_EXPLORER_BASE =
   (import.meta.env.VITE_MOVEMENT_EXPLORER_BASE || "https://explorer.movementnetwork.xyz").replace(/\/+$/, "");
@@ -294,19 +301,38 @@ async function requestRolley(
   const headers = new Headers(options.headers || {});
   headers.set("Content-Type", "application/json");
   if (adminKey.trim()) headers.set("X-Admin-Key", adminKey.trim());
-  const res = await fetch(`${ROLLEY_BASE}${path}`, { ...options, headers });
-  const contentType = res.headers.get("content-type") || "";
-  const body = contentType.includes("application/json")
-    ? await res.json().catch(() => ({}))
-    : await res.text().catch(() => "");
-  if (!res.ok) {
-    const message =
-      typeof body === "string"
-        ? body || `Rolley request failed (${res.status})`
-        : body?.detail || body?.message || body?.error || `Rolley request failed (${res.status})`;
-    throw new Error(message);
+  const method = String(options.method || "GET").toUpperCase();
+  const targets = method === "GET" ? ROLLEY_BASE_FALLBACKS : [ROLLEY_BASE];
+  let lastNetworkErr: Error | null = null;
+
+  for (const base of targets) {
+    try {
+      const res = await fetch(`${base}${path}`, { ...options, headers });
+      const contentType = res.headers.get("content-type") || "";
+      const body = contentType.includes("application/json")
+        ? await res.json().catch(() => ({}))
+        : await res.text().catch(() => "");
+      if (!res.ok) {
+        const message =
+          typeof body === "string"
+            ? body || `Rolley request failed (${res.status})`
+            : body?.detail || body?.message || body?.error || `Rolley request failed (${res.status})`;
+        throw new Error(message);
+      }
+      return typeof body === "string" ? {} : body;
+    } catch (err: any) {
+      const message = String(err?.message || "").toLowerCase();
+      const isNetworkFailure =
+        err instanceof TypeError ||
+        message.includes("failed to fetch") ||
+        message.includes("networkerror");
+      if (!isNetworkFailure || method !== "GET") {
+        throw err;
+      }
+      lastNetworkErr = err instanceof Error ? err : new Error("Rolley request failed");
+    }
   }
-  return typeof body === "string" ? {} : body;
+  throw lastNetworkErr || new Error("Rolley request failed");
 }
 
 function formatRol(raw: string | number | bigint | undefined) {
@@ -750,8 +776,9 @@ export default function App() {
       if (activityRes.status === "fulfilled") {
         setActivityFeed(Array.isArray(activityRes.value.activities) ? activityRes.value.activities : []);
       } else {
-        setError((prev) =>
-          prev ? `${prev}; Activity failed` : activityRes.reason?.message || "Activity failed"
+        setActivityFeed([]);
+        setWarning((prev) =>
+          prev ? `${prev}; Activity feed unavailable` : "Activity feed unavailable"
         );
       }
     } catch (err: any) {
