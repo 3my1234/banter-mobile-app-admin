@@ -21,6 +21,21 @@ type AdminOverview = {
   pcaVotes: number;
 };
 
+type AdminActivity = {
+  id: string;
+  activityType: string;
+  createdAt: string;
+  title: string;
+  description: string;
+  metadata?: Record<string, unknown>;
+  user?: {
+    id: string;
+    displayName?: string | null;
+    username?: string | null;
+    email?: string | null;
+  } | null;
+};
+
 type UserRow = {
   id: string;
   email?: string;
@@ -436,6 +451,16 @@ function statusChipClass(value?: string | null) {
   return "status-chip pending";
 }
 
+function latestStakeOutcomeLabel(row: RolleyStakePosition) {
+  if (row.status === "LOST") return "LOSS";
+  return displayText(row.latest_outcome);
+}
+
+function latestStakeOutcomeClass(row: RolleyStakePosition) {
+  if (row.status === "LOST") return statusChipClass("LOSS");
+  return statusChipClass(row.latest_outcome);
+}
+
 function movementTxUrl(hash?: string | null) {
   if (!hash) return "";
   return `${MOVEMENT_EXPLORER_BASE}/txn/${hash}?network=${MOVEMENT_EXPLORER_NETWORK}`;
@@ -458,6 +483,17 @@ function notificationMessage(notification: any) {
   if (notification?.type === "WALLET_TRANSFER") return "Wallet transfer sent.";
   if (notification?.type === "VOTE_PURCHASE") return "Vote purchase completed.";
   return displayText(notification?.title, "Notification update");
+}
+
+function activityActor(activity?: AdminActivity | null) {
+  if (!activity?.user) return "System";
+  const user = activity.user;
+  return (
+    (typeof user.displayName === "string" && user.displayName.trim()) ||
+    (typeof user.username === "string" && user.username.trim()) ||
+    (typeof user.email === "string" && user.email.trim()) ||
+    user.id
+  );
 }
 
 function formatStatKey(key: string) {
@@ -516,10 +552,12 @@ export default function App() {
   const [loginError, setLoginError] = useState("");
 
   const [overview, setOverview] = useState<AdminOverview | null>(null);
+  const [activityFeed, setActivityFeed] = useState<AdminActivity[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [userSearch, setUserSearch] = useState("");
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
+  const [selectedActivity, setSelectedActivity] = useState<AdminActivity | null>(null);
   const [categories, setCategories] = useState<PcaCategory[]>([]);
   const [ads, setAds] = useState<AdCampaign[]>([]);
   const [adSettings, setAdSettings] = useState<AdSettings | null>(null);
@@ -679,10 +717,11 @@ export default function App() {
       setBusy(true);
       setError("");
       setWarning("");
-      const [overviewRes, usersRes, categoryRes] = await Promise.allSettled([
+      const [overviewRes, usersRes, categoryRes, activityRes] = await Promise.allSettled([
         request("/admin/overview", token),
         request("/admin/users?limit=50", token),
         request("/admin/pca/categories", token),
+        request("/admin/activity?limit=80", token),
       ]);
 
       if (overviewRes.status === "fulfilled") {
@@ -706,6 +745,14 @@ export default function App() {
         }
       } else {
         setError((prev) => (prev ? `${prev}; PCA failed` : categoryRes.reason?.message || "PCA failed"));
+      }
+
+      if (activityRes.status === "fulfilled") {
+        setActivityFeed(Array.isArray(activityRes.value.activities) ? activityRes.value.activities : []);
+      } else {
+        setError((prev) =>
+          prev ? `${prev}; Activity failed` : activityRes.reason?.message || "Activity failed"
+        );
       }
     } catch (err: any) {
       setError(err?.message || "Failed to load admin data");
@@ -906,9 +953,11 @@ export default function App() {
     setToken("");
     localStorage.removeItem(TAB_KEY);
     setOverview(null);
+    setActivityFeed([]);
     setUsers([]);
     setSelectedUser(null);
     setSelectedNotification(null);
+    setSelectedActivity(null);
     setCategories([]);
     setAds([]);
     setAdSettings(null);
@@ -1667,6 +1716,42 @@ export default function App() {
                 <li>Use PCA manager to publish weekly and seasonal award categories.</li>
               </ul>
             </section>
+
+            <section className="card">
+              <h3>Latest User Activity</h3>
+              {!activityFeed.length ? (
+                <p className="muted">No activity yet.</p>
+              ) : (
+                <div className="table-wrap compact">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>User</th>
+                        <th>Type</th>
+                        <th>Summary</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activityFeed.map((activity) => (
+                        <tr key={activity.id}>
+                          <td>{formatDateTime(activity.createdAt)}</td>
+                          <td>{displayText(activityActor(activity))}</td>
+                          <td>{displayText(activity.activityType)}</td>
+                          <td title={displayText(activity.description, "")}>{shortContent(activity.description)}</td>
+                          <td>
+                            <button className="ghost" onClick={() => setSelectedActivity(activity)}>
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
           </>
         )}
 
@@ -2093,7 +2178,7 @@ export default function App() {
                         <th>Stake</th>
                         <th>Current</th>
                         <th>Days</th>
-                        <th>Latest</th>
+                        <th>Latest Day</th>
                         <th>Ends</th>
                         <th>Status</th>
                       </tr>
@@ -2112,7 +2197,8 @@ export default function App() {
                             <div className="muted">{row.days_remaining} remaining</div>
                           </td>
                           <td>
-                            <span className={statusChipClass(row.latest_outcome)}>{displayText(row.latest_outcome)}</span>
+                            <span className={latestStakeOutcomeClass(row)}>{latestStakeOutcomeLabel(row)}</span>
+                            <div className="muted">{row.latest_pick_date || "-"}</div>
                           </td>
                           <td>{row.ends_on}</td>
                           <td>
@@ -2139,7 +2225,7 @@ export default function App() {
                         <th>Stake</th>
                         <th>Current</th>
                         <th>Days</th>
-                        <th>Latest</th>
+                        <th>Loss Trigger</th>
                         <th>Ends</th>
                         <th>Status</th>
                       </tr>
@@ -2158,7 +2244,8 @@ export default function App() {
                             <div className="muted">{row.days_remaining} remaining</div>
                           </td>
                           <td>
-                            <span className={statusChipClass(row.latest_outcome)}>{displayText(row.latest_outcome)}</span>
+                            <span className={latestStakeOutcomeClass(row)}>{latestStakeOutcomeLabel(row)}</span>
+                            <div className="muted">{row.latest_pick_date || "-"}</div>
                           </td>
                           <td>{row.ends_on}</td>
                           <td>
@@ -3251,6 +3338,31 @@ export default function App() {
             ) : null}
             <div className="template-row">
               <button type="button" className="ghost" onClick={() => setSelectedNotification(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedActivity ? (
+        <div className="modal-backdrop" onClick={() => setSelectedActivity(null)}>
+          <div className="card modal-form" onClick={(e) => e.stopPropagation()}>
+            <h3>{displayText(selectedActivity.title || selectedActivity.activityType)}</h3>
+            <p className="muted">{displayText(selectedActivity.activityType)}</p>
+            <p>{displayText(selectedActivity.description, "-")}</p>
+            <div className="mini-stats">
+              <span>User: {displayText(activityActor(selectedActivity))}</span>
+              <span>Time: {formatDateTime(selectedActivity.createdAt)}</span>
+            </div>
+            {selectedActivity.metadata ? (
+              <details className="advanced-block" open>
+                <summary>Details</summary>
+                <pre>{JSON.stringify(selectedActivity.metadata, null, 2)}</pre>
+              </details>
+            ) : null}
+            <div className="template-row">
+              <button type="button" className="ghost" onClick={() => setSelectedActivity(null)}>
                 Close
               </button>
             </div>
